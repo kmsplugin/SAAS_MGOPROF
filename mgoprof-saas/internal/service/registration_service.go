@@ -278,11 +278,22 @@ func (s *RegistrationService) VerifyOTP(ctx context.Context, req model.VerifyOTP
 		return fmt.Errorf("неверный код подтверждения")
 	}
 
-	if err := s.regRepo.SetVerified(ctx, reg.ID); err != nil {
+	token := generateParticipantToken()
+	if err := s.regRepo.SetVerified(ctx, reg.ID, token); err != nil {
 		return fmt.Errorf("подтверждение: %w", err)
 	}
 	_ = s.logRepo.Write(ctx, "registration_verified", email, ip,
-		fmt.Sprintf("event #%d verified", req.EventID), userAgent)
+		fmt.Sprintf("event #%d verified, token=%s", req.EventID, token), userAgent)
+
+	// For offline events — send a ticket email with the QR link
+	event, eventErr := s.eventRepo.FindByID(ctx, req.EventID)
+	if eventErr == nil && event != nil && !event.IsOnline {
+		ticketURL := fmt.Sprintf("%s/cabinet/events/%d/ticket", s.siteURL, req.EventID)
+		if mailErr := s.mailer.SendTicket(email, user.FirstName, event.Title, ticketURL); mailErr != nil {
+			s.logger.Warn("ticket email failed", zap.String("email", email), zap.Error(mailErr))
+		}
+	}
+
 	return nil
 }
 
@@ -328,4 +339,18 @@ func hashPassword(pwd string) (string, error) {
 		return "", fmt.Errorf("bcrypt: %w", err)
 	}
 	return string(h), nil
+}
+
+// generateParticipantToken returns a URL-safe 12-character alphanumeric token.
+// Enough entropy for a few hundred thousand registrations without collision.
+const tokenAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+
+func generateParticipantToken() string {
+	const length = 12
+	b := make([]byte, length)
+	for i := range b {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(tokenAlphabet))))
+		b[i] = tokenAlphabet[n.Int64()]
+	}
+	return string(b)
 }

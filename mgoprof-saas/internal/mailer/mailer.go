@@ -139,6 +139,22 @@ func (m *Mailer) SendNewPassword(to, firstName, password, loginURL string) error
 	return m.send(to, "Новый пароль для личного кабинета", html)
 }
 
+// SendTicket sends a ticket confirmation with the QR link for offline events.
+func (m *Mailer) SendTicket(to, firstName, eventTitle, ticketPageURL string) error {
+	name := firstName
+	if name == "" {
+		name = "участник"
+	}
+	html := fmt.Sprintf(`
+		<p>Здравствуйте, %s!</p>
+		<p>Ваше участие в мероприятии <strong>%s</strong> подтверждено.</p>
+		<p>Ваш билет с QR-кодом для входа:</p>
+		<p><a href="%s" style="display:inline-block;padding:12px 24px;background:linear-gradient(135deg,#ff7c2c,#009b35);color:#fff;text-decoration:none;border-radius:8px;font-weight:bold">Открыть билет / QR</a></p>
+		<p style="color:#888;font-size:13px">Покажите QR-код на входе в место проведения мероприятия.</p>
+	`, name, eventTitle, ticketPageURL)
+	return m.send(to, "Ваш билет на мероприятие: "+eventTitle, html)
+}
+
 // SendAdminOTP mails an OTP code for admin login.
 func (m *Mailer) SendAdminOTP(to, name, otp string) error {
 	html := fmt.Sprintf(`

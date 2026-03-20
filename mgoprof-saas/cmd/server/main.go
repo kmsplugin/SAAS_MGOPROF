@@ -76,6 +76,7 @@ func main() {
 		cfg.AdminEmail, cfg.AdminPasswordHash, cfg.AdminName)
 	reportSvc   := service.NewReportService(reportRepo, eventRepo, logger)
 	trackingSvc := service.NewTrackingService(trackingRepo, regRepo, geo, logger)
+	ticketSvc   := service.NewTicketService(regRepo, eventRepo, userRepo, logger, cfg.SiteURL)
 
 	// Handlers
 	regHandler      := handler.NewRegistrationHandler(regSvc, logger)
@@ -85,6 +86,7 @@ func main() {
 	reportHandler   := handler.NewReportHandler(reportSvc, logger)
 	trackingHandler := handler.NewTrackingHandler(trackingSvc, logger)
 	fieldHandler    := handler.NewFieldHandler(fieldSvc, logger)
+	ticketHandler   := handler.NewTicketHandler(ticketSvc, logger)
 
 	// Router
 	if os.Getenv("GIN_MODE") == "" {
@@ -134,6 +136,9 @@ func main() {
 
 		// Per-event reports
 		reportHandler.RegisterRoutes(api, authMW)
+
+		// Participant tickets + admin check-in
+		ticketHandler.RegisterRoutes(api, authMW)
 	}
 
 	srv := &http.Server{

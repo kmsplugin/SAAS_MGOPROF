@@ -57,6 +57,7 @@ type Event struct {
 	EventTime   string     `db:"event_time"   json:"event_time"`
 	CabinetLink string     `db:"cabinet_link" json:"cabinet_link"`
 	IsActive    bool       `db:"is_active"    json:"is_active"`
+	IsOnline    bool       `db:"is_online"    json:"is_online"`
 	CreatedAt   time.Time  `db:"created_at"   json:"created_at"`
 	UpdatedAt   *time.Time `db:"updated_at"   json:"updated_at,omitempty"`
 }
@@ -93,25 +94,49 @@ type User struct {
 
 // Registration represents a reg_registrations row.
 type Registration struct {
-	ID            int        `db:"id"              json:"id"`
-	EventID       int        `db:"event_id"        json:"event_id"`
-	UserID        int        `db:"user_id"         json:"user_id"`
-	OTPCode       string     `db:"otp_code"        json:"-"`
-	OTPExpiresAt  time.Time  `db:"otp_expires_at"  json:"-"`
-	OTPVerifiedAt *time.Time `db:"otp_verified_at" json:"otp_verified_at,omitempty"`
-	Status        string     `db:"status"          json:"status"`
-	IPAddress     string     `db:"ip_address"      json:"-"`
-	GeoCountry    string     `db:"geo_country"     json:"geo_country"`
-	GeoRegion     string     `db:"geo_region"      json:"geo_region"`
-	GeoCity       string     `db:"geo_city"        json:"geo_city"`
-	ISPName       string     `db:"isp_name"        json:"-"`
-	ISPASN        string     `db:"isp_asn"         json:"-"`
-	DeviceType    string     `db:"device_type"     json:"device_type"`
-	OSName        string     `db:"os_name"         json:"os_name"`
-	BrowserName   string     `db:"browser_name"    json:"browser_name"`
-	UserAgent     string     `db:"user_agent"      json:"-"`
-	CreatedAt     time.Time  `db:"created_at"      json:"created_at"`
-	UpdatedAt     *time.Time `db:"updated_at"      json:"updated_at,omitempty"`
+	ID               int        `db:"id"                json:"id"`
+	EventID          int        `db:"event_id"          json:"event_id"`
+	UserID           int        `db:"user_id"           json:"user_id"`
+	OTPCode          string     `db:"otp_code"          json:"-"`
+	OTPExpiresAt     time.Time  `db:"otp_expires_at"    json:"-"`
+	OTPVerifiedAt    *time.Time `db:"otp_verified_at"   json:"otp_verified_at,omitempty"`
+	Status           string     `db:"status"            json:"status"`
+	IPAddress        string     `db:"ip_address"        json:"-"`
+	GeoCountry       string     `db:"geo_country"       json:"geo_country"`
+	GeoRegion        string     `db:"geo_region"        json:"geo_region"`
+	GeoCity          string     `db:"geo_city"          json:"geo_city"`
+	ISPName          string     `db:"isp_name"          json:"-"`
+	ISPASN           string     `db:"isp_asn"           json:"-"`
+	DeviceType       string     `db:"device_type"       json:"device_type"`
+	OSName           string     `db:"os_name"           json:"os_name"`
+	BrowserName      string     `db:"browser_name"      json:"browser_name"`
+	UserAgent        string     `db:"user_agent"        json:"-"`
+	ParticipantToken *string    `db:"participant_token" json:"participant_token,omitempty"`
+	CheckedInAt      *time.Time `db:"checked_in_at"     json:"checked_in_at,omitempty"`
+	CreatedAt        time.Time  `db:"created_at"        json:"created_at"`
+	UpdatedAt        *time.Time `db:"updated_at"        json:"updated_at,omitempty"`
+}
+
+// TicketInfo bundles everything needed to render a participant ticket.
+type TicketInfo struct {
+	Registration Registration
+	Event        Event
+	User         User
+	TicketURL    string // full URL encoded in the QR code
+}
+
+// CheckInRequest is the admin body for scanning / manually entering a token.
+type CheckInRequest struct {
+	Token string `json:"token" binding:"required"`
+}
+
+// CheckInResult is returned after a successful or duplicate check-in.
+type CheckInResult struct {
+	Status       string       `json:"status"` // "ok" | "already"
+	CheckedInAt  time.Time    `json:"checked_in_at"`
+	Registration Registration `json:"registration"`
+	User         User         `json:"user"`
+	Event        Event        `json:"event"`
 }
 
 // RegistrationRow is used for admin list/export queries joining all tables.
@@ -287,6 +312,7 @@ type CreateEventRequest struct {
 	EventTime   string `json:"event_time"   binding:"required"`
 	CabinetLink string `json:"cabinet_link"`
 	IsActive    bool   `json:"is_active"`
+	IsOnline    bool   `json:"is_online"`
 }
 
 type ErrorResponse struct {

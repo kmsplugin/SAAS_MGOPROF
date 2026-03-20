@@ -75,9 +75,9 @@ func (r *EventRepository) ListWithStats(ctx context.Context) ([]model.EventWithS
 func (r *EventRepository) Create(ctx context.Context, req model.CreateEventRequest) (int, error) {
 	var id int
 	err := r.db.QueryRowContext(ctx,
-		`INSERT INTO reg_events (title, description, event_date, event_time, cabinet_link, is_active)
-		 VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		req.Title, req.Description, req.EventDate, req.EventTime, req.CabinetLink, req.IsActive,
+		`INSERT INTO reg_events (title, description, event_date, event_time, cabinet_link, is_active, is_online)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+		req.Title, req.Description, req.EventDate, req.EventTime, req.CabinetLink, req.IsActive, req.IsOnline,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("event Create: %w", err)
@@ -89,10 +89,10 @@ func (r *EventRepository) Update(ctx context.Context, id int, req model.CreateEv
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE reg_events
 		 SET title=$1, description=$2, event_date=$3, event_time=$4,
-		     cabinet_link=$5, is_active=$6, updated_at=NOW()
-		 WHERE id=$7`,
+		     cabinet_link=$5, is_active=$6, is_online=$7, updated_at=NOW()
+		 WHERE id=$8`,
 		req.Title, req.Description, req.EventDate, req.EventTime,
-		req.CabinetLink, req.IsActive, id,
+		req.CabinetLink, req.IsActive, req.IsOnline, id,
 	)
 	if err != nil {
 		return fmt.Errorf("event Update: %w", err)

@@ -113,15 +113,41 @@ func (r *RegistrationRepository) UpdateOTPTx(
 	return nil
 }
 
-func (r *RegistrationRepository) SetVerified(ctx context.Context, id int) error {
+// SetVerified marks a registration as verified and assigns a unique participant token.
+func (r *RegistrationRepository) SetVerified(ctx context.Context, id int, token string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE reg_registrations
-		 SET status='verified', otp_verified_at=NOW(), updated_at=NOW()
+		 SET status='verified', otp_verified_at=NOW(), updated_at=NOW(),
+		     participant_token=$2
 		 WHERE id=$1`,
-		id,
+		id, token,
 	)
 	if err != nil {
 		return fmt.Errorf("reg SetVerified: %w", err)
+	}
+	return nil
+}
+
+// FindByToken returns a registration by its participant_token (for QR scanning).
+func (r *RegistrationRepository) FindByToken(ctx context.Context, token string) (*model.Registration, error) {
+	var reg model.Registration
+	err := r.db.GetContext(ctx, &reg,
+		`SELECT * FROM reg_registrations WHERE participant_token=$1 LIMIT 1`, token)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reg FindByToken: %w", err)
+	}
+	return &reg, nil
+}
+
+// SetCheckedIn records the check-in timestamp for a registration.
+func (r *RegistrationRepository) SetCheckedIn(ctx context.Context, id int) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE reg_registrations SET checked_in_at=NOW(), updated_at=NOW() WHERE id=$1`, id)
+	if err != nil {
+		return fmt.Errorf("reg SetCheckedIn: %w", err)
 	}
 	return nil
 }

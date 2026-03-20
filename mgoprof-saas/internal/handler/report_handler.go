@@ -114,6 +114,8 @@ func (h *ReportHandler) CSVExport(c *gin.Context) {
 		"Организация", "Округ", "Email",
 		"Член профсоюза", "Номер билета", "Примечание",
 		"IP", "Страна", "Регион", "Город",
+		"Провайдер (ISP)", "ASN",
+		"Устройство", "ОС", "Браузер",
 	})
 	for _, r := range rows {
 		unionMember := "Нет"
@@ -131,6 +133,8 @@ func (h *ReportHandler) CSVExport(c *gin.Context) {
 			r.Organization, r.District, r.Email,
 			unionMember, r.UnionTicket, r.ExtraInfo,
 			r.IPAddress, r.GeoCountry, r.GeoRegion, r.GeoCity,
+			r.ISPName, r.ISPASN,
+			r.DeviceType, r.OSName, r.BrowserName,
 		})
 	}
 	w.Flush()
@@ -223,6 +227,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .row-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
 .row-3-1{display:grid;grid-template-columns:3fr 2fr;gap:16px;margin-bottom:24px}
 @media(max-width:860px){.row-2,.row-3-1{grid-template-columns:1fr}}
+@media(max-width:860px){.row-3{grid-template-columns:1fr!important}}
 
 /* ── Card ── */
 .card{background:var(--card);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow);animation:fadeUp .4s ease both}
@@ -441,6 +446,59 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     </div>
   </div>
   {{end}}
+
+  <!-- Device / OS / Browser breakdown -->
+  <div class="row-3" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px">
+
+    <div class="card" style="animation-delay:.35s">
+      <div class="card-title">Устройства</div>
+      {{if .Report.Devices}}
+      <div class="org-list">
+        {{$maxD := 1}}{{range .Report.Devices}}{{if gt .Total $maxD}}{{$maxD = .Total}}{{end}}{{end}}
+        {{range .Report.Devices}}
+        <div class="org-row">
+          <span class="org-name">{{.Name}}</span>
+          <div class="org-bar"><div class="org-fill" style="width:{{pct .Total $maxD}}%"></div></div>
+          <span class="org-cnt">{{.Total}}</span>
+        </div>
+        {{end}}
+      </div>
+      {{else}}<div style="color:var(--muted);font-size:13px">Нет данных</div>{{end}}
+    </div>
+
+    <div class="card" style="animation-delay:.4s">
+      <div class="card-title">Операционные системы</div>
+      {{if .Report.OSes}}
+      <div class="org-list">
+        {{$maxO := 1}}{{range .Report.OSes}}{{if gt .Total $maxO}}{{$maxO = .Total}}{{end}}{{end}}
+        {{range .Report.OSes}}
+        <div class="org-row">
+          <span class="org-name">{{.Name}}</span>
+          <div class="org-bar"><div class="org-fill" style="width:{{pct .Total $maxO}}%"></div></div>
+          <span class="org-cnt">{{.Total}}</span>
+        </div>
+        {{end}}
+      </div>
+      {{else}}<div style="color:var(--muted);font-size:13px">Нет данных</div>{{end}}
+    </div>
+
+    <div class="card" style="animation-delay:.45s">
+      <div class="card-title">Браузеры</div>
+      {{if .Report.Browsers}}
+      <div class="org-list">
+        {{$maxB := 1}}{{range .Report.Browsers}}{{if gt .Total $maxB}}{{$maxB = .Total}}{{end}}{{end}}
+        {{range .Report.Browsers}}
+        <div class="org-row">
+          <span class="org-name">{{.Name}}</span>
+          <div class="org-bar"><div class="org-fill" style="width:{{pct .Total $maxB}}%"></div></div>
+          <span class="org-cnt">{{.Total}}</span>
+        </div>
+        {{end}}
+      </div>
+      {{else}}<div style="color:var(--muted);font-size:13px">Нет данных</div>{{end}}
+    </div>
+
+  </div>
 
 </div><!-- /main -->
 

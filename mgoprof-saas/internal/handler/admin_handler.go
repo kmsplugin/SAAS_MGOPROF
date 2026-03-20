@@ -192,7 +192,10 @@ func (h *AdminHandler) Export(c *gin.Context) {
 		"Фамилия", "Имя", "Отчество",
 		"Организация", "Округ", "Email",
 		"Член профсоюза", "Номер билета", "Другое",
-		"IP", "Страна", "Регион", "Город", "Статус",
+		"IP", "Страна", "Регион", "Город",
+		"Провайдер (ISP)", "ASN",
+		"Устройство", "ОС", "Браузер",
+		"Статус",
 	})
 
 	unionMember := func(b bool) string {
@@ -210,6 +213,8 @@ func (h *AdminHandler) Export(c *gin.Context) {
 			r.Organization, r.District, r.Email,
 			unionMember(r.IsUnionMember), r.UnionTicket, r.ExtraInfo,
 			r.IPAddress, r.GeoCountry, r.GeoRegion, r.GeoCity,
+			r.ISPName, r.ISPASN,
+			r.DeviceType, r.OSName, r.BrowserName,
 			r.Status,
 		})
 	}

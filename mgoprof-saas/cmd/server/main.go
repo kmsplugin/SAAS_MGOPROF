@@ -44,11 +44,13 @@ func main() {
 	defer db.Close()
 
 	// Repositories
-	userRepo := repository.NewUserRepository(db)
-	eventRepo := repository.NewEventRepository(db)
-	regRepo := repository.NewRegistrationRepository(db)
-	logRepo := repository.NewLogRepository(db)
-	reportRepo := repository.NewReportRepository(db)
+	userRepo     := repository.NewUserRepository(db)
+	eventRepo    := repository.NewEventRepository(db)
+	regRepo      := repository.NewRegistrationRepository(db)
+	logRepo      := repository.NewLogRepository(db)
+	reportRepo   := repository.NewReportRepository(db)
+	trackingRepo := repository.NewTrackingRepository(db)
+	fieldRepo    := repository.NewFieldRepository(db)
 
 	// Mailer (SMTP — compatible with Resend, Yandex, Mail.ru, etc.)
 	mail := mailer.New(mailer.Config{
@@ -62,31 +64,35 @@ func main() {
 	})
 
 	// GeoIP resolver (graceful degradation if no DB file)
-	geo := service.NewGeoResolver(cfg.GeoDBPath, logger)
+	geo := service.NewGeoResolver(cfg.GeoDBPath, cfg.GeoASNDBPath, logger)
 	defer geo.Close()
 
 	// Services
-	authSvc := service.NewAuthService(userRepo, logRepo, mail, geo, logger, cfg.JWTSecret, cfg.SiteURL)
-	regSvc := service.NewRegistrationService(userRepo, eventRepo, regRepo, logRepo, mail, geo, logger, cfg.SiteURL)
-	eventSvc := service.NewEventService(eventRepo, logger)
-	adminSvc := service.NewAdminService(regRepo, eventRepo, logRepo, mail, authSvc, logger,
+	authSvc     := service.NewAuthService(userRepo, logRepo, mail, geo, logger, cfg.JWTSecret, cfg.SiteURL)
+	fieldSvc    := service.NewFieldService(fieldRepo, logger)
+	regSvc      := service.NewRegistrationService(userRepo, eventRepo, regRepo, fieldRepo, logRepo, mail, geo, logger, cfg.SiteURL)
+	eventSvc    := service.NewEventService(eventRepo, logger)
+	adminSvc    := service.NewAdminService(regRepo, eventRepo, logRepo, mail, authSvc, logger,
 		cfg.AdminEmail, cfg.AdminPasswordHash, cfg.AdminName)
-	reportSvc := service.NewReportService(reportRepo, eventRepo, logger)
+	reportSvc   := service.NewReportService(reportRepo, eventRepo, logger)
+	trackingSvc := service.NewTrackingService(trackingRepo, regRepo, geo, logger)
 
 	// Handlers
-	regHandler := handler.NewRegistrationHandler(regSvc, logger)
-	authHandler := handler.NewAuthHandler(authSvc, regRepo, logger)
-	eventHandler := handler.NewEventHandler(eventSvc, logger)
-	adminHandler := handler.NewAdminHandler(adminSvc, eventSvc, authSvc, logger)
-	reportHandler := handler.NewReportHandler(reportSvc, logger)
+	regHandler      := handler.NewRegistrationHandler(regSvc, logger)
+	authHandler     := handler.NewAuthHandler(authSvc, regRepo, logger)
+	eventHandler    := handler.NewEventHandler(eventSvc, logger)
+	adminHandler    := handler.NewAdminHandler(adminSvc, eventSvc, authSvc, logger)
+	reportHandler   := handler.NewReportHandler(reportSvc, logger)
+	trackingHandler := handler.NewTrackingHandler(trackingSvc, logger)
+	fieldHandler    := handler.NewFieldHandler(fieldSvc, logger)
 
 	// Router
 	if os.Getenv("GIN_MODE") == "" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	// Rate limiters
-	registerLimiter := middleware.NewRateLimiter(5, 30*time.Second)   // 5 reg attempts / 30 s per IP
-	otpLimiter := middleware.NewRateLimiter(10, time.Minute)           // 10 OTP tries / min per IP
+	registerLimiter   := middleware.NewRateLimiter(5, 30*time.Second)  // 5 reg attempts / 30 s per IP
+	otpLimiter        := middleware.NewRateLimiter(10, time.Minute)    // 10 OTP tries / min per IP
 	adminLoginLimiter := middleware.NewRateLimiter(5, time.Minute)     // 5 admin login tries / min
 
 	r := gin.New()
@@ -108,13 +114,23 @@ func main() {
 		// Public event list
 		eventHandler.RegisterRoutes(api)
 
+		// Public custom fields per event (for registration form rendering)
+		fieldHandler.RegisterPublicRoutes(api)
+
 		// Cabinet (JWT-protected)
 		authHandler.RegisterRoutes(api, authMW)
+
+		// Participant tracking (JWT-protected) + admin tracking list
+		adminRoleMW := middleware.RequireRole("admin")
+		trackingHandler.RegisterRoutes(api, authMW, authMW, adminRoleMW)
 
 		// Admin auth (rate-limited) + admin panel
 		api.POST("/admin/login", adminLoginLimiter.Limit(), adminHandler.Login)
 		api.POST("/admin/verify-otp", otpLimiter.Limit(), adminHandler.VerifyOTP)
 		adminHandler.RegisterProtectedRoutes(api, authMW)
+
+		// Admin event fields CRUD
+		fieldHandler.RegisterAdminRoutes(api, authMW)
 
 		// Per-event reports
 		reportHandler.RegisterRoutes(api, authMW)

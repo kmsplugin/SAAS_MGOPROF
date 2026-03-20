@@ -45,6 +45,7 @@ type RegistrationService struct {
 	userRepo  *repository.UserRepository
 	eventRepo *repository.EventRepository
 	regRepo   *repository.RegistrationRepository
+	fieldRepo *repository.FieldRepository
 	logRepo   *repository.LogRepository
 	mailer    *mailer.Mailer
 	geo       *GeoResolver
@@ -56,6 +57,7 @@ func NewRegistrationService(
 	userRepo *repository.UserRepository,
 	eventRepo *repository.EventRepository,
 	regRepo *repository.RegistrationRepository,
+	fieldRepo *repository.FieldRepository,
 	logRepo *repository.LogRepository,
 	m *mailer.Mailer,
 	geo *GeoResolver,
@@ -66,6 +68,7 @@ func NewRegistrationService(
 		userRepo:  userRepo,
 		eventRepo: eventRepo,
 		regRepo:   regRepo,
+		fieldRepo: fieldRepo,
 		logRepo:   logRepo,
 		mailer:    m,
 		geo:       geo,
@@ -91,14 +94,23 @@ func (s *RegistrationService) Register(
 		return nil, fmt.Errorf("мероприятие недоступно для регистрации")
 	}
 
+	// Validate custom fields before starting TX
+	if len(req.Answers) > 0 || true {
+		if err := s.validateCustomAnswers(ctx, req.EventID, req.Answers); err != nil {
+			return nil, err
+		}
+	}
+
 	otp := generateOTP()
 	otpExpiresAt := time.Now().Add(otpTTLMinutes * time.Minute)
 	geoInfo := s.geo.Resolve(ip)
+	devInfo := ParseUserAgent(userAgent)
 
 	var (
 		userPassword   *string
 		passwordIssued bool
 		needSendOTP    = true
+		newRegID       int
 		message        = "Код отправлен на почту."
 	)
 
@@ -160,15 +172,28 @@ func (s *RegistrationService) Register(
 			if time.Since(*last).Seconds() < resendCooldownSeconds {
 				needSendOTP = false
 				message = "Регистрация уже начата. Проверьте письмо и введите код подтверждения."
+				newRegID = existing.ID
 			} else {
-				if err := s.regRepo.UpdateOTPTx(ctx, tx, existing.ID, otp, otpExpiresAt, ip, geoInfo); err != nil {
+				if err := s.regRepo.UpdateOTPTx(ctx, tx, existing.ID, otp, otpExpiresAt, ip, geoInfo, devInfo); err != nil {
 					return err
 				}
+				newRegID = existing.ID
 				message = "Новый код отправлен на почту."
 			}
 		} else {
-			if err := s.regRepo.CreateTx(ctx, tx, req.EventID, userID, otp, otpExpiresAt, ip, geoInfo); err != nil {
+			id, err := s.regRepo.CreateTx(ctx, tx, req.EventID, userID, otp, otpExpiresAt, ip, geoInfo, devInfo)
+			if err != nil {
 				return err
+			}
+			newRegID = id
+		}
+
+		// 3. Save custom field answers
+		if len(req.Answers) > 0 && newRegID > 0 {
+			answers := ToFieldAnswers(newRegID, req.Answers)
+			if err := s.fieldRepo.SaveAnswersTx(ctx, tx, newRegID, answers); err != nil {
+				s.logger.Warn("save answers failed", zap.Error(err))
+				// non-fatal — don't block registration
 			}
 		}
 		return nil
@@ -258,6 +283,28 @@ func (s *RegistrationService) VerifyOTP(ctx context.Context, req model.VerifyOTP
 	}
 	_ = s.logRepo.Write(ctx, "registration_verified", email, ip,
 		fmt.Sprintf("event #%d verified", req.EventID), userAgent)
+	return nil
+}
+
+// validateCustomAnswers checks required custom fields are filled.
+func (s *RegistrationService) validateCustomAnswers(ctx context.Context, eventID int, answers []model.AnswerInput) error {
+	fields, err := s.fieldRepo.ListByEvent(ctx, eventID)
+	if err != nil {
+		// Non-fatal: if we can't load fields, don't block registration
+		return nil
+	}
+	ansMap := make(map[int]string, len(answers))
+	for _, a := range answers {
+		ansMap[a.FieldID] = a.Value
+	}
+	for _, f := range fields {
+		if f.IsRequired {
+			v, ok := ansMap[f.ID]
+			if !ok || v == "" {
+				return fmt.Errorf("обязательное поле не заполнено: %s", f.Label)
+			}
+		}
+	}
 	return nil
 }
 

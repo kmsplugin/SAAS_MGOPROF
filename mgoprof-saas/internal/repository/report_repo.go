@@ -87,40 +87,79 @@ func (r *ReportRepository) GetEventReport(ctx context.Context, eventID int) (*mo
 		return nil, fmt.Errorf("report orgs: %w", err)
 	}
 
+	// -- Device / OS / Browser breakdowns -----------------------------------
+	devStats, err := r.deviceStats(ctx, eventID, "device_type")
+	if err != nil {
+		return nil, err
+	}
+	osStats, err := r.deviceStats(ctx, eventID, "os_name")
+	if err != nil {
+		return nil, err
+	}
+	browserStats, err := r.deviceStats(ctx, eventID, "browser_name")
+	if err != nil {
+		return nil, err
+	}
+
 	return &model.EventReport{
 		Stats:     stats,
 		Districts: districts,
 		Timeline:  timeline,
 		Orgs:      orgs,
+		Devices:   devStats,
+		OSes:      osStats,
+		Browsers:  browserStats,
 	}, nil
 }
+
+// deviceStats aggregates counts for one column in reg_registrations for an event.
+func (r *ReportRepository) deviceStats(ctx context.Context, eventID int, col string) ([]model.DeviceStat, error) {
+	var rows []model.DeviceStat
+	query := fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(%s,''),'unknown') AS name, COUNT(*) AS total
+		FROM reg_registrations
+		WHERE event_id = $1
+		GROUP BY name
+		ORDER BY total DESC`, col)
+	if err := r.db.SelectContext(ctx, &rows, query, eventID); err != nil {
+		return nil, fmt.Errorf("device stats (%s): %w", col, err)
+	}
+	return rows, nil
+}
+
+const exportSelectSQL = `
+	SELECT
+		r.created_at                  AS reg_datetime,
+		e.title                       AS event_title,
+		u.last_name,
+		u.first_name,
+		u.patronymic,
+		u.organization,
+		u.district,
+		u.email,
+		u.is_union_member,
+		COALESCE(u.union_ticket, '')  AS union_ticket,
+		COALESCE(u.extra_info, '')    AS extra_info,
+		COALESCE(r.ip_address, '')    AS ip_address,
+		COALESCE(r.geo_country, '')   AS geo_country,
+		COALESCE(r.geo_region, '')    AS geo_region,
+		COALESCE(r.geo_city, '')      AS geo_city,
+		COALESCE(r.isp_name, '')      AS isp_name,
+		COALESCE(r.isp_asn, '')       AS isp_asn,
+		COALESCE(r.device_type, '')   AS device_type,
+		COALESCE(r.os_name, '')       AS os_name,
+		COALESCE(r.browser_name, '')  AS browser_name,
+		r.status
+	FROM reg_registrations r
+	INNER JOIN reg_events e ON e.id = r.event_id
+	INNER JOIN reg_users  u ON u.id = r.user_id`
 
 // GetEventRegistrationsForExport returns all registrations for one event (for CSV).
 func (r *ReportRepository) GetEventRegistrationsForExport(ctx context.Context, eventID int) ([]model.RegistrationRow, error) {
 	var rows []model.RegistrationRow
-	err := r.db.SelectContext(ctx, &rows, `
-		SELECT
-			r.created_at AS reg_datetime,
-			e.title      AS event_title,
-			u.last_name,
-			u.first_name,
-			u.patronymic,
-			u.organization,
-			u.district,
-			u.email,
-			u.is_union_member,
-			COALESCE(u.union_ticket, '')  AS union_ticket,
-			COALESCE(u.extra_info, '')    AS extra_info,
-			COALESCE(r.ip_address, '')    AS ip_address,
-			COALESCE(r.geo_country, '')   AS geo_country,
-			COALESCE(r.geo_region, '')    AS geo_region,
-			COALESCE(r.geo_city, '')      AS geo_city,
-			r.status
-		FROM reg_registrations r
-		INNER JOIN reg_events e ON e.id = r.event_id
-		INNER JOIN reg_users  u ON u.id = r.user_id
-		WHERE r.event_id = $1
-		ORDER BY r.status DESC, u.last_name, u.first_name`, eventID)
+	err := r.db.SelectContext(ctx, &rows,
+		exportSelectSQL+` WHERE r.event_id = $1 ORDER BY r.status DESC, u.last_name, u.first_name`,
+		eventID)
 	if err != nil {
 		return nil, fmt.Errorf("export registrations: %w", err)
 	}
@@ -130,28 +169,8 @@ func (r *ReportRepository) GetEventRegistrationsForExport(ctx context.Context, e
 // GetAllEventsExport returns all registrations for all events grouped by event (for global CSV).
 func (r *ReportRepository) GetAllEventsExport(ctx context.Context) ([]model.RegistrationRow, error) {
 	var rows []model.RegistrationRow
-	err := r.db.SelectContext(ctx, &rows, `
-		SELECT
-			r.created_at AS reg_datetime,
-			e.title      AS event_title,
-			u.last_name,
-			u.first_name,
-			u.patronymic,
-			u.organization,
-			u.district,
-			u.email,
-			u.is_union_member,
-			COALESCE(u.union_ticket, '')  AS union_ticket,
-			COALESCE(u.extra_info, '')    AS extra_info,
-			COALESCE(r.ip_address, '')    AS ip_address,
-			COALESCE(r.geo_country, '')   AS geo_country,
-			COALESCE(r.geo_region, '')    AS geo_region,
-			COALESCE(r.geo_city, '')      AS geo_city,
-			r.status
-		FROM reg_registrations r
-		INNER JOIN reg_events e ON e.id = r.event_id
-		INNER JOIN reg_users  u ON u.id = r.user_id
-		ORDER BY e.event_date DESC, e.event_time DESC, r.status DESC, u.last_name`)
+	err := r.db.SelectContext(ctx, &rows,
+		exportSelectSQL+` ORDER BY e.event_date DESC, e.event_time DESC, r.status DESC, u.last_name`)
 	if err != nil {
 		return nil, fmt.Errorf("export all: %w", err)
 	}

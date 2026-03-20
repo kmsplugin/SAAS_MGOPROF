@@ -25,8 +25,9 @@ type Config struct {
 	AdminPasswordHash string
 	AdminName         string
 
-	// Optional MaxMind GeoLite2 database file
-	GeoDBPath string
+	// Optional MaxMind GeoLite2 database files
+	GeoDBPath    string // GeoLite2-City.mmdb
+	GeoASNDBPath string // GeoLite2-ASN.mmdb
 }
 
 func Load() *Config {
@@ -49,7 +50,8 @@ func Load() *Config {
 		AdminPasswordHash: getEnv("ADMIN_PASSWORD_HASH", ""),
 		AdminName:         getEnv("ADMIN_NAME", "Администратор"),
 
-		GeoDBPath: getEnv("GEO_DB_PATH", ""),
+		GeoDBPath:    getEnv("GEO_DB_PATH", ""),
+		GeoASNDBPath: getEnv("GEO_ASN_DB_PATH", ""),
 	}
 }
 

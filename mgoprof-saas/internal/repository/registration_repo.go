@@ -55,6 +55,7 @@ func (r *RegistrationRepository) FindByEventAndUserTx(
 	return &reg, nil
 }
 
+// CreateTx inserts a new pending registration and returns its ID.
 func (r *RegistrationRepository) CreateTx(
 	ctx context.Context,
 	tx *sqlx.Tx,
@@ -63,20 +64,28 @@ func (r *RegistrationRepository) CreateTx(
 	expiresAt time.Time,
 	ip string,
 	geo model.Geo,
-) error {
-	_, err := tx.ExecContext(ctx,
+	dev model.DeviceInfo,
+) (int, error) {
+	var id int
+	err := tx.QueryRowContext(ctx,
 		`INSERT INTO reg_registrations
 			(event_id, user_id, otp_code, otp_expires_at, status,
-			 ip_address, geo_country, geo_region, geo_city)
-		 VALUES ($1,$2,$3,$4,'pending',$5,$6,$7,$8)`,
-		eventID, userID, otp, expiresAt, ip, geo.Country, geo.Region, geo.City,
-	)
+			 ip_address, geo_country, geo_region, geo_city,
+			 isp_name, isp_asn, device_type, os_name, browser_name)
+		 VALUES ($1,$2,$3,$4,'pending',$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		 RETURNING id`,
+		eventID, userID, otp, expiresAt, ip,
+		geo.Country, geo.Region, geo.City,
+		geo.ISPName, geo.ISPASN,
+		dev.DeviceType, dev.OSName, dev.BrowserName,
+	).Scan(&id)
 	if err != nil {
-		return fmt.Errorf("reg CreateTx: %w", err)
+		return 0, fmt.Errorf("reg CreateTx: %w", err)
 	}
-	return nil
+	return id, nil
 }
 
+// UpdateOTPTx refreshes OTP and device/geo info on an existing pending registration.
 func (r *RegistrationRepository) UpdateOTPTx(
 	ctx context.Context,
 	tx *sqlx.Tx,
@@ -85,14 +94,18 @@ func (r *RegistrationRepository) UpdateOTPTx(
 	expiresAt time.Time,
 	ip string,
 	geo model.Geo,
+	dev model.DeviceInfo,
 ) error {
 	_, err := tx.ExecContext(ctx,
 		`UPDATE reg_registrations
 		 SET otp_code=$1, otp_expires_at=$2, otp_verified_at=NULL,
-		     status='pending', ip_address=$3, geo_country=$4,
-		     geo_region=$5, geo_city=$6, updated_at=NOW()
-		 WHERE id=$7`,
-		otp, expiresAt, ip, geo.Country, geo.Region, geo.City, id,
+		     status='pending', ip_address=$3, geo_country=$4, geo_region=$5, geo_city=$6,
+		     isp_name=$7, isp_asn=$8, device_type=$9, os_name=$10, browser_name=$11,
+		     updated_at=NOW()
+		 WHERE id=$12`,
+		otp, expiresAt, ip, geo.Country, geo.Region, geo.City,
+		geo.ISPName, geo.ISPASN, dev.DeviceType, dev.OSName, dev.BrowserName,
+		id,
 	)
 	if err != nil {
 		return fmt.Errorf("reg UpdateOTPTx: %w", err)
@@ -113,31 +126,37 @@ func (r *RegistrationRepository) SetVerified(ctx context.Context, id int) error 
 	return nil
 }
 
+const regRowSelectSQL = `
+	SELECT
+		r.created_at                  AS reg_datetime,
+		e.title                       AS event_title,
+		u.last_name,
+		u.first_name,
+		u.patronymic,
+		u.organization,
+		u.district,
+		u.email,
+		u.is_union_member,
+		COALESCE(u.union_ticket, '')  AS union_ticket,
+		COALESCE(u.extra_info, '')    AS extra_info,
+		COALESCE(r.ip_address, '')    AS ip_address,
+		COALESCE(r.geo_country, '')   AS geo_country,
+		COALESCE(r.geo_region, '')    AS geo_region,
+		COALESCE(r.geo_city, '')      AS geo_city,
+		COALESCE(r.isp_name, '')      AS isp_name,
+		COALESCE(r.isp_asn, '')       AS isp_asn,
+		COALESCE(r.device_type, '')   AS device_type,
+		COALESCE(r.os_name, '')       AS os_name,
+		COALESCE(r.browser_name, '')  AS browser_name,
+		r.status
+	FROM reg_registrations r
+	INNER JOIN reg_events e ON e.id = r.event_id
+	INNER JOIN reg_users  u ON u.id = r.user_id`
+
 // ListAll returns all registrations joined with events and users (for admin).
 func (r *RegistrationRepository) ListAll(ctx context.Context) ([]model.RegistrationRow, error) {
 	var rows []model.RegistrationRow
-	err := r.db.SelectContext(ctx, &rows, `
-		SELECT
-			r.created_at AS reg_datetime,
-			e.title      AS event_title,
-			u.last_name,
-			u.first_name,
-			u.patronymic,
-			u.organization,
-			u.district,
-			u.email,
-			u.is_union_member,
-			COALESCE(u.union_ticket, '')  AS union_ticket,
-			COALESCE(u.extra_info, '')    AS extra_info,
-			COALESCE(r.ip_address, '')    AS ip_address,
-			COALESCE(r.geo_country, '')   AS geo_country,
-			COALESCE(r.geo_region, '')    AS geo_region,
-			COALESCE(r.geo_city, '')      AS geo_city,
-			r.status
-		FROM reg_registrations r
-		INNER JOIN reg_events e ON e.id = r.event_id
-		INNER JOIN reg_users  u ON u.id = r.user_id
-		ORDER BY r.created_at DESC`)
+	err := r.db.SelectContext(ctx, &rows, regRowSelectSQL+` ORDER BY r.created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("reg ListAll: %w", err)
 	}
@@ -147,29 +166,7 @@ func (r *RegistrationRepository) ListAll(ctx context.Context) ([]model.Registrat
 // ListRecent returns the N most recent registrations (for admin dashboard).
 func (r *RegistrationRepository) ListRecent(ctx context.Context, limit int) ([]model.RegistrationRow, error) {
 	var rows []model.RegistrationRow
-	err := r.db.SelectContext(ctx, &rows, `
-		SELECT
-			r.created_at AS reg_datetime,
-			e.title      AS event_title,
-			u.last_name,
-			u.first_name,
-			u.patronymic,
-			u.organization,
-			u.district,
-			u.email,
-			u.is_union_member,
-			COALESCE(u.union_ticket, '') AS union_ticket,
-			COALESCE(u.extra_info, '')   AS extra_info,
-			COALESCE(r.ip_address, '')   AS ip_address,
-			COALESCE(r.geo_country, '')  AS geo_country,
-			COALESCE(r.geo_region, '')   AS geo_region,
-			COALESCE(r.geo_city, '')     AS geo_city,
-			r.status
-		FROM reg_registrations r
-		INNER JOIN reg_events e ON e.id = r.event_id
-		INNER JOIN reg_users  u ON u.id = r.user_id
-		ORDER BY r.created_at DESC
-		LIMIT $1`, limit)
+	err := r.db.SelectContext(ctx, &rows, regRowSelectSQL+` ORDER BY r.created_at DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("reg ListRecent: %w", err)
 	}

@@ -48,6 +48,7 @@ func main() {
 	eventRepo := repository.NewEventRepository(db)
 	regRepo := repository.NewRegistrationRepository(db)
 	logRepo := repository.NewLogRepository(db)
+	reportRepo := repository.NewReportRepository(db)
 
 	// Mailer (SMTP — compatible with Resend, Yandex, Mail.ru, etc.)
 	mail := mailer.New(mailer.Config{
@@ -70,20 +71,28 @@ func main() {
 	eventSvc := service.NewEventService(eventRepo, logger)
 	adminSvc := service.NewAdminService(regRepo, eventRepo, logRepo, mail, authSvc, logger,
 		cfg.AdminEmail, cfg.AdminPasswordHash, cfg.AdminName)
+	reportSvc := service.NewReportService(reportRepo, eventRepo, logger)
 
 	// Handlers
 	regHandler := handler.NewRegistrationHandler(regSvc, logger)
 	authHandler := handler.NewAuthHandler(authSvc, regRepo, logger)
 	eventHandler := handler.NewEventHandler(eventSvc, logger)
 	adminHandler := handler.NewAdminHandler(adminSvc, eventSvc, authSvc, logger)
+	reportHandler := handler.NewReportHandler(reportSvc, logger)
 
 	// Router
 	if os.Getenv("GIN_MODE") == "" {
 		gin.SetMode(gin.ReleaseMode)
 	}
+	// Rate limiters
+	registerLimiter := middleware.NewRateLimiter(5, 30*time.Second)   // 5 reg attempts / 30 s per IP
+	otpLimiter := middleware.NewRateLimiter(10, time.Minute)           // 10 OTP tries / min per IP
+	adminLoginLimiter := middleware.NewRateLimiter(5, time.Minute)     // 5 admin login tries / min
+
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.CORS())
+	r.Use(middleware.Logger(logger))
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Format(time.RFC3339)})
@@ -92,10 +101,23 @@ func main() {
 	authMW := middleware.Auth(authSvc)
 	api := r.Group("/api")
 	{
-		regHandler.RegisterRoutes(api)
-		authHandler.RegisterRoutes(api, authMW)
+		// Public registration routes (rate-limited)
+		api.POST("/register", registerLimiter.Limit(), regHandler.HandleRegister)
+		api.POST("/verify-otp", otpLimiter.Limit(), regHandler.HandleVerifyOTP)
+
+		// Public event list
 		eventHandler.RegisterRoutes(api)
-		adminHandler.RegisterRoutes(api, authMW)
+
+		// Cabinet (JWT-protected)
+		authHandler.RegisterRoutes(api, authMW)
+
+		// Admin auth (rate-limited) + admin panel
+		api.POST("/admin/login", adminLoginLimiter.Limit(), adminHandler.Login)
+		api.POST("/admin/verify-otp", otpLimiter.Limit(), adminHandler.VerifyOTP)
+		adminHandler.RegisterProtectedRoutes(api, authMW)
+
+		// Per-event reports
+		reportHandler.RegisterRoutes(api, authMW)
 	}
 
 	srv := &http.Server{

@@ -21,10 +21,11 @@ func NewRegistrationHandler(svc *service.RegistrationService, logger *zap.Logger
 	return &RegistrationHandler{svc: svc, logger: logger}
 }
 
-func (h *RegistrationHandler) RegisterRoutes(r *gin.RouterGroup) {
-	r.POST("/register", h.Register)
-	r.POST("/verify-otp", h.VerifyOTP)
-}
+// HandleRegister is the Gin handler for POST /api/register.
+func (h *RegistrationHandler) HandleRegister(c *gin.Context) { h.Register(c) }
+
+// HandleVerifyOTP is the Gin handler for POST /api/verify-otp.
+func (h *RegistrationHandler) HandleVerifyOTP(c *gin.Context) { h.VerifyOTP(c) }
 
 // Register godoc
 // @Summary     Регистрация на мероприятие

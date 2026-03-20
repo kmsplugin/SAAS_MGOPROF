@@ -2,6 +2,49 @@ package model
 
 import "time"
 
+// ── Report analytics types ────────────────────────────────────────────────────
+
+// ReportStats holds aggregate counters for a single event.
+type ReportStats struct {
+	TotalRegs    int        `db:"total_regs"    json:"total_regs"`
+	VerifiedRegs int        `db:"verified_regs" json:"verified_regs"`
+	PendingRegs  int        `db:"pending_regs"  json:"pending_regs"`
+	UnionMembers int        `db:"union_members" json:"union_members"`
+	NonUnion     int        `db:"non_union"     json:"non_union"`
+	FirstRegAt   *time.Time `db:"first_reg_at"  json:"first_reg_at,omitempty"`
+	LastRegAt    *time.Time `db:"last_reg_at"   json:"last_reg_at,omitempty"`
+}
+
+// DistrictStat holds registration counts per district.
+type DistrictStat struct {
+	District string `db:"district" json:"district"`
+	Total    int    `db:"total"    json:"total"`
+	Verified int    `db:"verified" json:"verified"`
+}
+
+// TimelinePoint represents registrations in a 5-minute bucket.
+type TimelinePoint struct {
+	Bucket   time.Time `db:"bucket"   json:"bucket"`
+	Count    int       `db:"count"    json:"count"`
+	Verified int       `db:"verified" json:"verified"`
+}
+
+// OrgStat holds registration counts per organization (top-N).
+type OrgStat struct {
+	Organization string `db:"organization" json:"organization"`
+	Total        int    `db:"total"        json:"total"`
+}
+
+// EventReport bundles all analytics for one event.
+type EventReport struct {
+	Stats     ReportStats    `json:"stats"`
+	Districts []DistrictStat `json:"districts"`
+	Timeline  []TimelinePoint `json:"timeline"`
+	Orgs      []OrgStat      `json:"orgs"`
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 // Event represents a reg_events row.
 type Event struct {
 	ID          int        `db:"id"           json:"id"`

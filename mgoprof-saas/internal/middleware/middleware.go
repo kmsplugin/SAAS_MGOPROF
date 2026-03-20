@@ -1,28 +1,42 @@
+// Package middleware provides Gin middleware for MGOPROF.
 package middleware
 
 import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"mgoprof-saas/internal/model"
 	"mgoprof-saas/internal/service"
 )
 
-// Auth validates a Bearer JWT and stores userID / role in the context.
+// Auth validates a Bearer JWT from the Authorization header OR ?token= query param.
+// The query-param fallback enables browser-accessible admin HTML pages.
 func Auth(authSvc *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		if !strings.HasPrefix(header, "Bearer ") {
+		token := ""
+
+		// 1. Authorization: Bearer <token>
+		if h := c.GetHeader("Authorization"); strings.HasPrefix(h, "Bearer ") {
+			token = strings.TrimPrefix(h, "Bearer ")
+		}
+		// 2. ?token=<jwt>  (browser fallback for HTML report pages)
+		if token == "" {
+			token = c.Query("token")
+		}
+
+		if token == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, model.ErrorResponse{
 				Status:  "error",
 				Message: "требуется авторизация",
 			})
 			return
 		}
-		token := strings.TrimPrefix(header, "Bearer ")
 
 		userID, role, err := authSvc.ParseToken(token)
 		if err != nil {
@@ -39,7 +53,7 @@ func Auth(authSvc *service.AuthService) gin.HandlerFunc {
 	}
 }
 
-// RequireRole aborts if the JWT role doesn't match.
+// RequireRole aborts with 403 if the JWT role doesn't match.
 func RequireRole(role string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetString("role") != role {
@@ -72,6 +86,22 @@ func CORS() gin.HandlerFunc {
 	}
 }
 
+// Logger logs every request with status, latency and IP.
+func Logger(log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		c.Next()
+		log.Info("http",
+			zap.Int("status", c.Writer.Status()),
+			zap.String("method", c.Request.Method),
+			zap.String("path", path),
+			zap.Duration("latency", time.Since(start)),
+			zap.String("ip", ExtractIP(c)),
+		)
+	}
+}
+
 // ExtractIP returns the real client IP, preferring Cloudflare and X-Forwarded-For headers.
 func ExtractIP(c *gin.Context) string {
 	if ip := c.GetHeader("CF-Connecting-IP"); ip != "" {
@@ -81,4 +111,69 @@ func ExtractIP(c *gin.Context) string {
 		return strings.SplitN(ip, ",", 2)[0]
 	}
 	return c.ClientIP()
+}
+
+// ── Rate limiter ──────────────────────────────────────────────────────────────
+
+type ipEntry struct {
+	count     int
+	windowEnd time.Time
+}
+
+// RateLimiter is a simple in-memory, per-IP sliding-window limiter.
+type RateLimiter struct {
+	mu       sync.Mutex
+	entries  map[string]*ipEntry
+	limit    int
+	window   time.Duration
+	lastGC   time.Time
+}
+
+// NewRateLimiter creates a limiter allowing `limit` requests per `window` per IP.
+func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
+	return &RateLimiter{
+		entries: make(map[string]*ipEntry),
+		limit:   limit,
+		window:  window,
+		lastGC:  time.Now(),
+	}
+}
+
+func (rl *RateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+
+	// Periodic GC to prevent unbounded map growth.
+	if now.Sub(rl.lastGC) > 5*time.Minute {
+		for k, e := range rl.entries {
+			if now.After(e.windowEnd) {
+				delete(rl.entries, k)
+			}
+		}
+		rl.lastGC = now
+	}
+
+	e, ok := rl.entries[ip]
+	if !ok || now.After(e.windowEnd) {
+		rl.entries[ip] = &ipEntry{count: 1, windowEnd: now.Add(rl.window)}
+		return true
+	}
+	e.count++
+	return e.count <= rl.limit
+}
+
+// Limit returns a Gin middleware that rate-limits by IP.
+func (rl *RateLimiter) Limit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !rl.allow(ExtractIP(c)) {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, model.ErrorResponse{
+				Status:  "error",
+				Message: "Слишком много запросов. Подождите немного.",
+			})
+			return
+		}
+		c.Next()
+	}
 }

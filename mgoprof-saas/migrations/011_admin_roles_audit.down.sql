@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS user_profile_change_logs;
+DROP TABLE IF EXISTS admin_action_logs_2026_q4;
+DROP TABLE IF EXISTS admin_action_logs_2026_q3;
+DROP TABLE IF EXISTS admin_action_logs_2026_q2;
+DROP TABLE IF EXISTS admin_action_logs_2026_01;
+DROP TABLE IF EXISTS admin_action_logs;
+DROP TABLE IF EXISTS role_permissions;
+DROP TABLE IF EXISTS permissions;
+DROP TABLE IF EXISTS admin_users;

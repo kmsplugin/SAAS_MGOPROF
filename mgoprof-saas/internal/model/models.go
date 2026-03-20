@@ -375,3 +375,140 @@ type ErrorResponse struct {
 	Status  string `json:"status"`
 	Message string `json:"message"`
 }
+
+// ── Admin / RBAC models ───────────────────────────────────────────────────────
+
+// AdminUser represents an admin_users row.
+type AdminUser struct {
+	ID           int        `db:"id"            json:"id"`
+	Email        string     `db:"email"         json:"email"`
+	Name         string     `db:"name"          json:"name"`
+	PasswordHash string     `db:"password_hash" json:"-"`
+	Role         string     `db:"role"          json:"role"`
+	IsActive     bool       `db:"is_active"     json:"is_active"`
+	CreatedBy    *int       `db:"created_by"    json:"created_by,omitempty"`
+	LastLoginAt  *time.Time `db:"last_login_at" json:"last_login_at,omitempty"`
+	CreatedAt    time.Time  `db:"created_at"    json:"created_at"`
+	UpdatedAt    *time.Time `db:"updated_at"    json:"updated_at,omitempty"`
+}
+
+// Permission represents a granular permission key.
+type Permission struct {
+	ID          int    `db:"id"          json:"id"`
+	Key         string `db:"key"         json:"key"`
+	Description string `db:"description" json:"description"`
+	Category    string `db:"category"    json:"category"`
+}
+
+// AdminActionLog represents a row in admin_action_logs.
+type AdminActionLog struct {
+	ID         int64      `db:"id"          json:"id"`
+	AdminID    *int       `db:"admin_id"    json:"admin_id,omitempty"`
+	AdminEmail string     `db:"admin_email" json:"admin_email"`
+	Action     string     `db:"action"      json:"action"`
+	TargetType string     `db:"target_type" json:"target_type"`
+	TargetID   *int       `db:"target_id"   json:"target_id,omitempty"`
+	OldValue   []byte     `db:"old_value"   json:"old_value,omitempty"`
+	NewValue   []byte     `db:"new_value"   json:"new_value,omitempty"`
+	IP         string     `db:"ip"          json:"ip"`
+	CreatedAt  time.Time  `db:"created_at"  json:"created_at"`
+}
+
+// UserProfileChangeLog is a single field-level audit entry.
+type UserProfileChangeLog struct {
+	ID        int64      `db:"id"         json:"id"`
+	UserID    int        `db:"user_id"    json:"user_id"`
+	ChangedBy *int       `db:"changed_by" json:"changed_by,omitempty"`
+	FieldName string     `db:"field_name" json:"field_name"`
+	OldValue  string     `db:"old_value"  json:"old_value"`
+	NewValue  string     `db:"new_value"  json:"new_value"`
+	ChangedAt time.Time  `db:"changed_at" json:"changed_at"`
+}
+
+// ── Q&A models ────────────────────────────────────────────────────────────────
+
+// UserQuestion represents a user_questions row.
+type UserQuestion struct {
+	ID           int        `db:"id"             json:"id"`
+	UserID       int        `db:"user_id"        json:"user_id"`
+	EventID      int        `db:"event_id"       json:"event_id"`
+	Subject      string     `db:"subject"        json:"subject"`
+	Status       string     `db:"status"         json:"status"`
+	Priority     int        `db:"priority"       json:"priority"`
+	AssignedTo   *int       `db:"assigned_to"    json:"assigned_to,omitempty"`
+	FirstReplyAt *time.Time `db:"first_reply_at" json:"first_reply_at,omitempty"`
+	CreatedAt    time.Time  `db:"created_at"     json:"created_at"`
+	UpdatedAt    *time.Time `db:"updated_at"     json:"updated_at,omitempty"`
+	ClosedAt     *time.Time `db:"closed_at"      json:"closed_at,omitempty"`
+}
+
+// UserQuestionWithMeta extends UserQuestion with joined display fields.
+type UserQuestionWithMeta struct {
+	UserQuestion
+	EventTitle  string `db:"event_title"  json:"event_title"`
+	UserEmail   string `db:"user_email"   json:"user_email"`
+	UserName    string `db:"user_name"    json:"user_name"`
+	UnreadCount int    `db:"unread_count" json:"unread_count"`
+}
+
+// QuestionMessage represents a single message in a question thread.
+type QuestionMessage struct {
+	ID         int       `db:"id"          json:"id"`
+	QuestionID int       `db:"question_id" json:"question_id"`
+	SenderID   int       `db:"sender_id"   json:"sender_id"`
+	SenderRole string    `db:"sender_role" json:"sender_role"`
+	Body       string    `db:"body"        json:"body"`
+	IsRead     bool      `db:"is_read"     json:"is_read"`
+	CreatedAt  time.Time `db:"created_at"  json:"created_at"`
+}
+
+// QuestionStats holds analytics for the Q&A dashboard.
+type QuestionStats struct {
+	Total          int     `db:"total"           json:"total"`
+	New            int     `db:"new_count"       json:"new"`
+	InProgress     int     `db:"in_progress"     json:"in_progress"`
+	Answered       int     `db:"answered"        json:"answered"`
+	Closed         int     `db:"closed"          json:"closed"`
+	AvgReplyMinutes float64 `db:"avg_reply_min"  json:"avg_reply_minutes"`
+}
+
+// ── Request DTOs ──────────────────────────────────────────────────────────────
+
+// CreateQuestionRequest is the body for POST /api/cabinet/questions.
+type CreateQuestionRequest struct {
+	EventID int    `json:"event_id" binding:"required,min=1"`
+	Subject string `json:"subject"  binding:"required,min=5,max=200"`
+	Body    string `json:"body"     binding:"required,min=10"`
+}
+
+// SendMessageRequest is the body for POST /api/cabinet/questions/:id/messages.
+type SendMessageRequest struct {
+	Body string `json:"body" binding:"required,min=1,max=5000"`
+}
+
+// CreateAdminRequest is used by super_admin to create a new admin user.
+type CreateAdminRequest struct {
+	Email    string `json:"email"    binding:"required,email"`
+	Name     string `json:"name"     binding:"required"`
+	Role     string `json:"role"     binding:"required,oneof=admin operator support viewer"`
+	Password string `json:"password" binding:"required,min=8"`
+}
+
+// UpdateAdminUserRequest allows editing an admin's name/role/active state.
+type UpdateAdminUserRequest struct {
+	Name     string `json:"name"`
+	Role     string `json:"role"      binding:"omitempty,oneof=admin operator support viewer"`
+	IsActive *bool  `json:"is_active"`
+}
+
+// AssignQuestionRequest assigns a question to an operator.
+type AssignQuestionRequest struct {
+	AdminID int `json:"admin_id" binding:"required,min=1"`
+}
+
+// UpdateQuestionStatusRequest changes question status.
+type UpdateQuestionStatusRequest struct {
+	Status  string `json:"status"  binding:"required,oneof=in_progress answered closed"`
+	Comment string `json:"comment"`
+}
+

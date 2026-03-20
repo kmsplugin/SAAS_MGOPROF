@@ -1,0 +1,10 @@
+{
+  "name": "mgoprof/reg-v3-selector",
+  "description": "Registration widget and cabinet for /reg_v3",
+  "type": "project",
+  "require": {
+    "php": ">=7.4",
+    "phpmailer/phpmailer": "^6.9",
+    "maxmind-db/reader": "^1.12"
+  }
+}

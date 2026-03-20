@@ -1,0 +1,5 @@
+# Переименуйте в .htaccess на сервере с Apache, если нужен Basic Auth
+AuthType Basic
+AuthName "Restricted Access"
+AuthUserFile /absolute/path/to/reg_v3/admin/.htpasswd
+Require valid-user

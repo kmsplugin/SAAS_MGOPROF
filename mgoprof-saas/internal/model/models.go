@@ -1,0 +1,163 @@
+package model
+
+import "time"
+
+// Event represents a reg_events row.
+type Event struct {
+	ID          int        `db:"id"           json:"id"`
+	Title       string     `db:"title"        json:"title"`
+	Description string     `db:"description"  json:"description"`
+	EventDate   string     `db:"event_date"   json:"event_date"`
+	EventTime   string     `db:"event_time"   json:"event_time"`
+	CabinetLink string     `db:"cabinet_link" json:"cabinet_link"`
+	IsActive    bool       `db:"is_active"    json:"is_active"`
+	CreatedAt   time.Time  `db:"created_at"   json:"created_at"`
+	UpdatedAt   *time.Time `db:"updated_at"   json:"updated_at,omitempty"`
+}
+
+// EventWithStats extends Event with aggregated registration counts.
+type EventWithStats struct {
+	Event
+	TotalRegs    int `db:"total_regs"    json:"total_regs"`
+	VerifiedRegs int `db:"verified_regs" json:"verified_regs"`
+}
+
+// User represents a reg_users row.
+type User struct {
+	ID                int        `db:"id"                   json:"id"`
+	Email             string     `db:"email"                json:"email"`
+	LastName          string     `db:"last_name"            json:"last_name"`
+	FirstName         string     `db:"first_name"           json:"first_name"`
+	Patronymic        string     `db:"patronymic"           json:"patronymic"`
+	Organization      string     `db:"organization"         json:"organization"`
+	District          string     `db:"district"             json:"district"`
+	IsUnionMember     bool       `db:"is_union_member"      json:"is_union_member"`
+	UnionTicket       string     `db:"union_ticket"         json:"union_ticket"`
+	ExtraInfo         string     `db:"extra_info"           json:"extra_info"`
+	LastIP            string     `db:"last_ip"              json:"-"`
+	GeoCountry        string     `db:"geo_country"          json:"geo_country"`
+	GeoRegion         string     `db:"geo_region"           json:"geo_region"`
+	GeoCity           string     `db:"geo_city"             json:"geo_city"`
+	UserAgent         string     `db:"user_agent"           json:"-"`
+	PasswordHash      string     `db:"password_hash"        json:"-"`
+	PasswordUpdatedAt *time.Time `db:"password_updated_at"  json:"-"`
+	CreatedAt         time.Time  `db:"created_at"           json:"created_at"`
+	UpdatedAt         *time.Time `db:"updated_at"           json:"-"`
+}
+
+// Registration represents a reg_registrations row.
+type Registration struct {
+	ID            int        `db:"id"              json:"id"`
+	EventID       int        `db:"event_id"        json:"event_id"`
+	UserID        int        `db:"user_id"         json:"user_id"`
+	OTPCode       string     `db:"otp_code"        json:"-"`
+	OTPExpiresAt  time.Time  `db:"otp_expires_at"  json:"-"`
+	OTPVerifiedAt *time.Time `db:"otp_verified_at" json:"otp_verified_at,omitempty"`
+	Status        string     `db:"status"          json:"status"`
+	IPAddress     string     `db:"ip_address"      json:"-"`
+	GeoCountry    string     `db:"geo_country"     json:"geo_country"`
+	GeoRegion     string     `db:"geo_region"      json:"geo_region"`
+	GeoCity       string     `db:"geo_city"        json:"geo_city"`
+	CreatedAt     time.Time  `db:"created_at"      json:"created_at"`
+	UpdatedAt     *time.Time `db:"updated_at"      json:"updated_at,omitempty"`
+}
+
+// RegistrationRow is used for admin list/export queries joining all tables.
+type RegistrationRow struct {
+	RegDatetime  time.Time `db:"reg_datetime"  json:"reg_datetime"`
+	EventTitle   string    `db:"event_title"   json:"event_title"`
+	LastName     string    `db:"last_name"     json:"last_name"`
+	FirstName    string    `db:"first_name"    json:"first_name"`
+	Patronymic   string    `db:"patronymic"    json:"patronymic"`
+	Organization string    `db:"organization"  json:"organization"`
+	District     string    `db:"district"      json:"district"`
+	Email        string    `db:"email"         json:"email"`
+	IsUnionMember bool     `db:"is_union_member" json:"is_union_member"`
+	UnionTicket  string    `db:"union_ticket"  json:"union_ticket"`
+	ExtraInfo    string    `db:"extra_info"    json:"extra_info"`
+	IPAddress    string    `db:"ip_address"    json:"ip_address"`
+	GeoCountry   string    `db:"geo_country"   json:"geo_country"`
+	GeoRegion    string    `db:"geo_region"    json:"geo_region"`
+	GeoCity      string    `db:"geo_city"      json:"geo_city"`
+	Status       string    `db:"status"        json:"status"`
+}
+
+// Log represents a reg_logs row.
+type Log struct {
+	ID        int       `db:"id"         json:"id"`
+	EventType string    `db:"event_type" json:"event_type"`
+	UserEmail string    `db:"user_email" json:"user_email"`
+	IPAddress string    `db:"ip_address" json:"ip_address"`
+	Message   string    `db:"message"    json:"message"`
+	UserAgent string    `db:"user_agent" json:"user_agent"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+}
+
+// Stats aggregates dashboard counters.
+type Stats struct {
+	TotalUsers    int `db:"total_users"    json:"total_users"`
+	VerifiedRegs  int `db:"verified_regs"  json:"verified_regs"`
+	PendingRegs   int `db:"pending_regs"   json:"pending_regs"`
+	ActiveEvents  int `db:"active_events"  json:"active_events"`
+}
+
+// Geo holds geographic information resolved from an IP address.
+type Geo struct {
+	Country string
+	Region  string
+	City    string
+}
+
+// --- Request / Response DTOs ---
+
+type RegisterRequest struct {
+	Email         string `json:"email"          binding:"required,email"`
+	EventID       int    `json:"event_id"       binding:"required,min=1"`
+	FirstName     string `json:"first_name"     binding:"required"`
+	LastName      string `json:"last_name"      binding:"required"`
+	Patronymic    string `json:"patronymic"`
+	Organization  string `json:"organization"   binding:"required"`
+	District      string `json:"district"       binding:"required"`
+	IsUnionMember bool   `json:"is_union_member"`
+	UnionTicket   string `json:"union_ticket"`
+	ExtraInfo     string `json:"extra_info"`
+}
+
+type VerifyOTPRequest struct {
+	Email   string `json:"email"    binding:"required,email"`
+	EventID int    `json:"event_id" binding:"required,min=1"`
+	OTP     string `json:"otp"      binding:"required,len=6"`
+}
+
+type LoginRequest struct {
+	Email    string `json:"email"    binding:"required,email"`
+	Password string `json:"password" binding:"required"`
+}
+
+type ForgotPasswordRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type AdminLoginRequest struct {
+	Email    string `json:"email"    binding:"required,email"`
+	Password string `json:"password" binding:"required"`
+}
+
+type AdminVerifyOTPRequest struct {
+	Email string `json:"email" binding:"required,email"`
+	OTP   string `json:"otp"   binding:"required,len=6"`
+}
+
+type CreateEventRequest struct {
+	Title       string `json:"title"        binding:"required"`
+	Description string `json:"description"`
+	EventDate   string `json:"event_date"   binding:"required"`
+	EventTime   string `json:"event_time"   binding:"required"`
+	CabinetLink string `json:"cabinet_link"`
+	IsActive    bool   `json:"is_active"`
+}
+
+type ErrorResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}

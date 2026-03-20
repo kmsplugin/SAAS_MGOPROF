@@ -1,0 +1,284 @@
+package service
+
+import (
+	"context"
+	"crypto/rand"
+	"fmt"
+	"math/big"
+	"strings"
+	"time"
+
+	"github.com/jmoiron/sqlx"
+	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
+
+	"mgoprof-saas/internal/mailer"
+	"mgoprof-saas/internal/model"
+	"mgoprof-saas/internal/repository"
+)
+
+const (
+	resendCooldownSeconds = 10
+	otpTTLMinutes         = 10
+	passwordLength        = 10
+	passwordAlphabet      = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+)
+
+// RegisterResult is returned to the handler after a registration attempt.
+type RegisterResult struct {
+	Status          string `json:"status"`
+	Message         string `json:"message"`
+	ShowOTP         bool   `json:"show_otp"`
+	PasswordIssued  bool   `json:"password_issued"`
+	CabinetLoginURL string `json:"cabinet_login"`
+}
+
+// AlreadyRegisteredError is returned when the user is already verified for an event.
+type AlreadyRegisteredError struct {
+	CabinetURL string
+}
+
+func (e *AlreadyRegisteredError) Error() string { return "already_registered" }
+
+// RegistrationService orchestrates the full registration flow.
+type RegistrationService struct {
+	userRepo  *repository.UserRepository
+	eventRepo *repository.EventRepository
+	regRepo   *repository.RegistrationRepository
+	logRepo   *repository.LogRepository
+	mailer    *mailer.Mailer
+	geo       *GeoResolver
+	logger    *zap.Logger
+	siteURL   string
+}
+
+func NewRegistrationService(
+	userRepo *repository.UserRepository,
+	eventRepo *repository.EventRepository,
+	regRepo *repository.RegistrationRepository,
+	logRepo *repository.LogRepository,
+	m *mailer.Mailer,
+	geo *GeoResolver,
+	logger *zap.Logger,
+	siteURL string,
+) *RegistrationService {
+	return &RegistrationService{
+		userRepo:  userRepo,
+		eventRepo: eventRepo,
+		regRepo:   regRepo,
+		logRepo:   logRepo,
+		mailer:    m,
+		geo:       geo,
+		logger:    logger,
+		siteURL:   siteURL,
+	}
+}
+
+// Register runs the full registration flow: find/create user, cooldown, send OTP.
+func (s *RegistrationService) Register(
+	ctx context.Context,
+	req model.RegisterRequest,
+	ip, userAgent string,
+) (*RegisterResult, error) {
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	cabinetURL := fmt.Sprintf("%s/cabinet/login?email=%s", s.siteURL, email)
+
+	event, err := s.eventRepo.FindActiveByID(ctx, req.EventID)
+	if err != nil {
+		return nil, fmt.Errorf("проверка мероприятия: %w", err)
+	}
+	if event == nil {
+		return nil, fmt.Errorf("мероприятие недоступно для регистрации")
+	}
+
+	otp := generateOTP()
+	otpExpiresAt := time.Now().Add(otpTTLMinutes * time.Minute)
+	geoInfo := s.geo.Resolve(ip)
+
+	var (
+		userPassword   *string
+		passwordIssued bool
+		needSendOTP    = true
+		message        = "Код отправлен на почту."
+	)
+
+	txErr := s.userRepo.WithTx(ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+		// 1. Find or create user
+		user, err := s.userRepo.FindByEmailTx(ctx, tx, email)
+		if err != nil {
+			return fmt.Errorf("поиск пользователя: %w", err)
+		}
+
+		var userID int
+		if user != nil {
+			userID = user.ID
+			if err := s.userRepo.UpdateTx(ctx, tx, userID, req, ip, geoInfo, userAgent); err != nil {
+				return fmt.Errorf("обновление пользователя: %w", err)
+			}
+			// Issue password if not set
+			if user.PasswordHash == "" {
+				pwd := generatePassword(passwordLength)
+				hash, err := hashPassword(pwd)
+				if err != nil {
+					return err
+				}
+				if err := s.userRepo.SetPasswordTx(ctx, tx, userID, hash); err != nil {
+					return err
+				}
+				userPassword = &pwd
+				passwordIssued = true
+			}
+		} else {
+			pwd := generatePassword(passwordLength)
+			hash, err := hashPassword(pwd)
+			if err != nil {
+				return err
+			}
+			userID, err = s.userRepo.CreateTx(ctx, tx, email, req, ip, geoInfo, userAgent, hash)
+			if err != nil {
+				return fmt.Errorf("создание пользователя: %w", err)
+			}
+			userPassword = &pwd
+			passwordIssued = true
+		}
+
+		// 2. Check existing registration
+		existing, err := s.regRepo.FindByEventAndUserTx(ctx, tx, req.EventID, userID)
+		if err != nil {
+			return fmt.Errorf("поиск регистрации: %w", err)
+		}
+
+		if existing != nil {
+			if existing.Status == "verified" {
+				return &AlreadyRegisteredError{CabinetURL: cabinetURL}
+			}
+			// Cooldown check
+			last := existing.UpdatedAt
+			if last == nil {
+				last = &existing.CreatedAt
+			}
+			if time.Since(*last).Seconds() < resendCooldownSeconds {
+				needSendOTP = false
+				message = "Регистрация уже начата. Проверьте письмо и введите код подтверждения."
+			} else {
+				if err := s.regRepo.UpdateOTPTx(ctx, tx, existing.ID, otp, otpExpiresAt, ip, geoInfo); err != nil {
+					return err
+				}
+				message = "Новый код отправлен на почту."
+			}
+		} else {
+			if err := s.regRepo.CreateTx(ctx, tx, req.EventID, userID, otp, otpExpiresAt, ip, geoInfo); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	if txErr != nil {
+		if alreadyErr, ok := txErr.(*AlreadyRegisteredError); ok {
+			_ = s.logRepo.Write(ctx, "registration_duplicate_verified", email, ip,
+				fmt.Sprintf("verified registration exists for event #%d", req.EventID), userAgent)
+			return &RegisterResult{
+				Status:          "already_registered",
+				Message:         "Вы уже зарегистрированы на это мероприятие. Войдите в кабинет.",
+				CabinetLoginURL: alreadyErr.CabinetURL,
+			}, nil
+		}
+		_ = s.logRepo.Write(ctx, "registration_error", email, ip, txErr.Error(), userAgent)
+		return nil, txErr
+	}
+
+	if needSendOTP {
+		if mailErr := s.mailer.SendRegistration(email, req.FirstName, otp, userPassword, cabinetURL, event.Title); mailErr != nil {
+			s.logger.Error("registration email failed",
+				zap.String("email", email),
+				zap.Error(mailErr),
+			)
+			_ = s.logRepo.Write(ctx, "registration_mail_error", email, ip,
+				"email failed: "+mailErr.Error(), userAgent)
+			return nil, fmt.Errorf("регистрация сохранена, но письмо не отправлено. Попробуйте повторить позже.")
+		}
+		_ = s.logRepo.Write(ctx, "registration_created", email, ip,
+			fmt.Sprintf("OTP sent for event #%d", req.EventID), userAgent)
+	} else {
+		_ = s.logRepo.Write(ctx, "registration_pending_reused", email, ip,
+			fmt.Sprintf("pending reused for event #%d", req.EventID), userAgent)
+	}
+
+	if passwordIssued {
+		message += " Пароль для кабинета также отправлен на почту."
+	}
+
+	status := "success"
+	if !needSendOTP {
+		status = "pending"
+	}
+
+	return &RegisterResult{
+		Status:          status,
+		Message:         message,
+		ShowOTP:         true,
+		PasswordIssued:  passwordIssued,
+		CabinetLoginURL: cabinetURL,
+	}, nil
+}
+
+// VerifyOTP verifies the OTP and marks the registration as verified.
+func (s *RegistrationService) VerifyOTP(ctx context.Context, req model.VerifyOTPRequest, ip, userAgent string) error {
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+
+	user, err := s.userRepo.FindByEmail(ctx, email)
+	if err != nil {
+		return fmt.Errorf("поиск пользователя: %w", err)
+	}
+	if user == nil {
+		return fmt.Errorf("пользователь не найден")
+	}
+
+	reg, err := s.regRepo.FindByEventAndUser(ctx, req.EventID, user.ID)
+	if err != nil {
+		return fmt.Errorf("поиск регистрации: %w", err)
+	}
+	if reg == nil {
+		return fmt.Errorf("регистрация не найдена")
+	}
+	if reg.Status == "verified" {
+		return fmt.Errorf("регистрация уже подтверждена")
+	}
+	if time.Now().After(reg.OTPExpiresAt) {
+		return fmt.Errorf("код подтверждения истёк. Запросите новый.")
+	}
+	if reg.OTPCode != req.OTP {
+		_ = s.logRepo.Write(ctx, "otp_failed", email, ip, "invalid OTP", userAgent)
+		return fmt.Errorf("неверный код подтверждения")
+	}
+
+	if err := s.regRepo.SetVerified(ctx, reg.ID); err != nil {
+		return fmt.Errorf("подтверждение: %w", err)
+	}
+	_ = s.logRepo.Write(ctx, "registration_verified", email, ip,
+		fmt.Sprintf("event #%d verified", req.EventID), userAgent)
+	return nil
+}
+
+func generateOTP() string {
+	n, _ := rand.Int(rand.Reader, big.NewInt(1_000_000))
+	return fmt.Sprintf("%06d", n.Int64())
+}
+
+func generatePassword(length int) string {
+	b := make([]byte, length)
+	for i := range b {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(passwordAlphabet))))
+		b[i] = passwordAlphabet[n.Int64()]
+	}
+	return string(b)
+}
+
+func hashPassword(pwd string) (string, error) {
+	h, err := bcrypt.GenerateFromPassword([]byte(pwd), 12)
+	if err != nil {
+		return "", fmt.Errorf("bcrypt: %w", err)
+	}
+	return string(h), nil
+}

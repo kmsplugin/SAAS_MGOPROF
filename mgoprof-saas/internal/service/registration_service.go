@@ -42,15 +42,16 @@ func (e *AlreadyRegisteredError) Error() string { return "already_registered" }
 
 // RegistrationService orchestrates the full registration flow.
 type RegistrationService struct {
-	userRepo  *repository.UserRepository
-	eventRepo *repository.EventRepository
-	regRepo   *repository.RegistrationRepository
-	fieldRepo *repository.FieldRepository
-	logRepo   *repository.LogRepository
-	mailer    *mailer.Mailer
-	geo       *GeoResolver
-	logger    *zap.Logger
-	siteURL   string
+	userRepo    *repository.UserRepository
+	eventRepo   *repository.EventRepository
+	regRepo     *repository.RegistrationRepository
+	fieldRepo   *repository.FieldRepository
+	logRepo     *repository.LogRepository
+	consentRepo *repository.ConsentRepository
+	mailer      *mailer.Mailer
+	geo         *GeoResolver
+	logger      *zap.Logger
+	siteURL     string
 }
 
 func NewRegistrationService(
@@ -59,21 +60,23 @@ func NewRegistrationService(
 	regRepo *repository.RegistrationRepository,
 	fieldRepo *repository.FieldRepository,
 	logRepo *repository.LogRepository,
+	consentRepo *repository.ConsentRepository,
 	m *mailer.Mailer,
 	geo *GeoResolver,
 	logger *zap.Logger,
 	siteURL string,
 ) *RegistrationService {
 	return &RegistrationService{
-		userRepo:  userRepo,
-		eventRepo: eventRepo,
-		regRepo:   regRepo,
-		fieldRepo: fieldRepo,
-		logRepo:   logRepo,
-		mailer:    m,
-		geo:       geo,
-		logger:    logger,
-		siteURL:   siteURL,
+		userRepo:    userRepo,
+		eventRepo:   eventRepo,
+		regRepo:     regRepo,
+		fieldRepo:   fieldRepo,
+		logRepo:     logRepo,
+		consentRepo: consentRepo,
+		mailer:      m,
+		geo:         geo,
+		logger:      logger,
+		siteURL:     siteURL,
 	}
 }
 
@@ -83,6 +86,11 @@ func (s *RegistrationService) Register(
 	req model.RegisterRequest,
 	ip, userAgent string,
 ) (*RegisterResult, error) {
+	// 152-ФЗ ст.9, GDPR Art.7: consent is mandatory before any data processing.
+	if !req.ConsentGiven {
+		return nil, fmt.Errorf("для регистрации необходимо согласие на обработку персональных данных")
+	}
+
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	cabinetURL := fmt.Sprintf("%s/cabinet/login?email=%s", s.siteURL, email)
 
@@ -95,10 +103,8 @@ func (s *RegistrationService) Register(
 	}
 
 	// Validate custom fields before starting TX
-	if len(req.Answers) > 0 || true {
-		if err := s.validateCustomAnswers(ctx, req.EventID, req.Answers); err != nil {
-			return nil, err
-		}
+	if err := s.validateCustomAnswers(ctx, req.EventID, req.Answers); err != nil {
+		return nil, err
 	}
 
 	otp := generateOTP()
@@ -154,7 +160,24 @@ func (s *RegistrationService) Register(
 			passwordIssued = true
 		}
 
-		// 2. Check existing registration
+		// 2a. Capacity check — only for new registrations (existing re-register skips this)
+		if event.Capacity > 0 {
+			count, err := s.regRepo.CountVerifiedByEvent(ctx, tx, req.EventID)
+			if err != nil {
+				return fmt.Errorf("проверка вместимости: %w", err)
+			}
+			if count >= event.Capacity {
+				return fmt.Errorf("мест нет — мероприятие заполнено (%d/%d)", count, event.Capacity)
+			}
+		}
+
+		// 2b. Save consent (152-ФЗ ст.9, GDPR Art.7) — idempotent via ON CONFLICT DO NOTHING
+		if err := s.consentRepo.SaveTx(ctx, tx, userID, req.EventID, ip, userAgent); err != nil {
+			s.logger.Warn("consent save failed", zap.Error(err))
+			// Non-fatal: log but don't block registration
+		}
+
+		// 3. Check existing registration
 		existing, err := s.regRepo.FindByEventAndUserTx(ctx, tx, req.EventID, userID)
 		if err != nil {
 			return fmt.Errorf("поиск регистрации: %w", err)
@@ -188,7 +211,7 @@ func (s *RegistrationService) Register(
 			newRegID = id
 		}
 
-		// 3. Save custom field answers
+		// 4. Save custom field answers
 		if len(req.Answers) > 0 && newRegID > 0 {
 			answers := ToFieldAnswers(newRegID, req.Answers)
 			if err := s.fieldRepo.SaveAnswersTx(ctx, tx, newRegID, answers); err != nil {

@@ -100,6 +100,55 @@ func (r *UserRepository) Update(
 	return nil
 }
 
+// UpdateProfile updates only the profile fields a user is allowed to change.
+func (r *UserRepository) UpdateProfile(ctx context.Context, userID int, req model.UpdateProfileRequest) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE reg_users
+		 SET first_name=$1, last_name=$2, patronymic=$3, organization=$4,
+		     district=$5, is_union_member=$6, union_ticket=$7, extra_info=$8,
+		     updated_at=NOW()
+		 WHERE id=$9`,
+		req.FirstName, req.LastName, req.Patronymic, req.Organization,
+		req.District, req.IsUnionMember, req.UnionTicket, req.ExtraInfo,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("user UpdateProfile: %w", err)
+	}
+	return nil
+}
+
+// Anonymize replaces all personal data with anonymous placeholders.
+// Used for the "right to erasure" (152-ФЗ ст.21, GDPR Art.17, CCPA §1798.105).
+// The user row is kept (not deleted) so foreign-key constraints in reg_registrations
+// and reg_consents remain intact. The `deleted_at` column signals the account is gone.
+func (r *UserRepository) Anonymize(ctx context.Context, userID int) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE reg_users
+		 SET email            = 'deleted-' || id || '@anon.local',
+		     first_name       = 'Удалено',
+		     last_name        = 'Удалено',
+		     patronymic       = '',
+		     organization     = '',
+		     district         = '',
+		     union_ticket     = '',
+		     extra_info       = '',
+		     password_hash    = '',
+		     last_ip          = '',
+		     geo_country      = '',
+		     geo_region       = '',
+		     geo_city         = '',
+		     user_agent       = '',
+		     updated_at       = NOW()
+		 WHERE id = $1`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("user Anonymize: %w", err)
+	}
+	return nil
+}
+
 func (r *UserRepository) SetPassword(ctx context.Context, userID int, hash string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE reg_users

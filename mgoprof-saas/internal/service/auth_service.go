@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -17,19 +18,23 @@ import (
 
 const jwtTTL = 72 * time.Hour
 
-// AuthService handles user cabinet authentication.
+// AuthService handles user cabinet authentication and self-service.
 type AuthService struct {
-	userRepo *repository.UserRepository
-	logRepo  *repository.LogRepository
-	mailer   *mailer.Mailer
-	geo      *GeoResolver
-	logger   *zap.Logger
-	jwtSecret []byte
-	siteURL  string
+	userRepo    *repository.UserRepository
+	regRepo     *repository.RegistrationRepository
+	consentRepo *repository.ConsentRepository
+	logRepo     *repository.LogRepository
+	mailer      *mailer.Mailer
+	geo         *GeoResolver
+	logger      *zap.Logger
+	jwtSecret   []byte
+	siteURL     string
 }
 
 func NewAuthService(
 	userRepo *repository.UserRepository,
+	regRepo *repository.RegistrationRepository,
+	consentRepo *repository.ConsentRepository,
 	logRepo *repository.LogRepository,
 	m *mailer.Mailer,
 	geo *GeoResolver,
@@ -37,13 +42,15 @@ func NewAuthService(
 	jwtSecret, siteURL string,
 ) *AuthService {
 	return &AuthService{
-		userRepo:  userRepo,
-		logRepo:   logRepo,
-		mailer:    m,
-		geo:       geo,
-		logger:    logger,
-		jwtSecret: []byte(jwtSecret),
-		siteURL:   siteURL,
+		userRepo:    userRepo,
+		regRepo:     regRepo,
+		consentRepo: consentRepo,
+		logRepo:     logRepo,
+		mailer:      m,
+		geo:         geo,
+		logger:      logger,
+		jwtSecret:   []byte(jwtSecret),
+		siteURL:     siteURL,
 	}
 }
 
@@ -127,6 +134,109 @@ func (s *AuthService) issueToken(userID int, email, role string) (string, error)
 	}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return t.SignedString(s.jwtSecret)
+}
+
+// UpdateProfile updates non-sensitive profile fields.
+func (s *AuthService) UpdateProfile(ctx context.Context, userID int, req model.UpdateProfileRequest, ip, ua string) error {
+	if err := s.userRepo.UpdateProfile(ctx, userID, req); err != nil {
+		return fmt.Errorf("обновление профиля: %w", err)
+	}
+	_ = s.logRepo.Write(ctx, "profile_updated", "", ip, fmt.Sprintf("user #%d updated profile", userID), ua)
+	return nil
+}
+
+// ChangePassword verifies the current password and sets a new one.
+func (s *AuthService) ChangePassword(ctx context.Context, userID int, req model.ChangePasswordRequest, ip, ua string) error {
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil || user == nil {
+		return fmt.Errorf("пользователь не найден")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		_ = s.logRepo.Write(ctx, "password_change_failed", user.Email, ip, "wrong current password", ua)
+		return fmt.Errorf("неверный текущий пароль")
+	}
+	hash, err := hashPassword(req.NewPassword)
+	if err != nil {
+		return err
+	}
+	if err := s.userRepo.SetPassword(ctx, userID, hash); err != nil {
+		return fmt.Errorf("сохранение пароля: %w", err)
+	}
+	_ = s.logRepo.Write(ctx, "password_changed", user.Email, ip, "password changed by user", ua)
+	return nil
+}
+
+// ExportData assembles all personal data for a user and emails it to them.
+// Required by: RF 152-ФЗ ст.14, GDPR Art.15, CCPA §1798.100.
+func (s *AuthService) ExportData(ctx context.Context, userID int, ip, ua string) error {
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil || user == nil {
+		return fmt.Errorf("пользователь не найден")
+	}
+	regs, err := s.regRepo.ListRegistrationsForExport(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("получение регистраций: %w", err)
+	}
+	consents, err := s.consentRepo.ListByUser(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("получение согласий: %w", err)
+	}
+
+	export := model.DataExport{
+		User:          *user,
+		Registrations: regs,
+		Consents:      consents,
+		ExportedAt:    time.Now(),
+	}
+	raw, _ := json.MarshalIndent(export, "", "  ")
+
+	if err := s.mailer.SendDataExport(user.Email, user.FirstName, string(raw)); err != nil {
+		return fmt.Errorf("отправка данных: %w", err)
+	}
+	_ = s.logRepo.Write(ctx, "data_export_requested", user.Email, ip, "GDPR/152-ФЗ data export sent", ua)
+	return nil
+}
+
+// DeleteAccount anonymizes the user's data (right to erasure).
+// Required by: RF 152-ФЗ ст.21, GDPR Art.17, CCPA §1798.105.
+// The user row is anonymized in-place; foreign-key integrity is preserved.
+func (s *AuthService) DeleteAccount(ctx context.Context, userID int, password, ip, ua string) error {
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil || user == nil {
+		return fmt.Errorf("пользователь не найден")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		_ = s.logRepo.Write(ctx, "account_delete_failed", user.Email, ip, "wrong password", ua)
+		return fmt.Errorf("неверный пароль")
+	}
+	// Withdraw all consents
+	if err := s.consentRepo.WithdrawAll(ctx, userID); err != nil {
+		s.logger.Warn("withdraw consents failed", zap.Error(err))
+	}
+	// Log deletion request for DPA audit trail
+	if err := s.consentRepo.RequestDeletion(ctx, userID, "user self-delete"); err != nil {
+		s.logger.Warn("deletion request record failed", zap.Error(err))
+	}
+	// Anonymize personal data
+	if err := s.userRepo.Anonymize(ctx, userID); err != nil {
+		return fmt.Errorf("анонимизация данных: %w", err)
+	}
+	_ = s.logRepo.Write(ctx, "account_deleted", user.Email, ip, "user account anonymized", ua)
+	return nil
+}
+
+// CancelRegistration cancels the user's registration for an event.
+func (s *AuthService) CancelRegistration(ctx context.Context, userID, eventID int, ip, ua string) error {
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil || user == nil {
+		return fmt.Errorf("пользователь не найден")
+	}
+	if err := s.regRepo.CancelByUser(ctx, userID, eventID); err != nil {
+		return err
+	}
+	_ = s.logRepo.Write(ctx, "registration_cancelled", user.Email, ip,
+		fmt.Sprintf("cancelled event #%d", eventID), ua)
+	return nil
 }
 
 // ParseToken validates a JWT and returns userID and role.

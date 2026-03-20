@@ -33,17 +33,21 @@ func main() {
 	}
 	defer logger.Sync() //nolint:errcheck
 
-	// Database
+	// ── Database ──────────────────────────────────────────────────────────────
+	// Pool tuned for burst registration loads (e.g. 2000 users in 30 minutes).
+	// At peak ~20 req/sec, each TX holds a connection for ~50-100ms →
+	// average concurrency ≈ 20 * 0.1s = 2 connections. Pool of 50 gives
+	// comfortable headroom for spikes without exhausting PostgreSQL limits.
 	db, err := sqlx.Connect("postgres", cfg.DatabaseURL)
 	if err != nil {
 		logger.Fatal("db connect failed", zap.Error(err))
 	}
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
+	db.SetMaxOpenConns(50)
+	db.SetMaxIdleConns(10)
 	db.SetConnMaxLifetime(5 * time.Minute)
 	defer db.Close()
 
-	// Repositories
+	// ── Repositories ─────────────────────────────────────────────────────────
 	userRepo     := repository.NewUserRepository(db)
 	eventRepo    := repository.NewEventRepository(db)
 	regRepo      := repository.NewRegistrationRepository(db)
@@ -51,8 +55,11 @@ func main() {
 	reportRepo   := repository.NewReportRepository(db)
 	trackingRepo := repository.NewTrackingRepository(db)
 	fieldRepo    := repository.NewFieldRepository(db)
+	consentRepo  := repository.NewConsentRepository(db)
 
-	// Mailer (SMTP — compatible with Resend, Yandex, Mail.ru, etc.)
+	// ── Mailer (async worker pool — 5 workers, buffer 500 jobs) ──────────────
+	// Workers drain the channel concurrently so HTTP handlers never block on SMTP.
+	// See mailer package docs for the full scalability rationale.
 	mail := mailer.New(mailer.Config{
 		Host:      cfg.SMTPHost,
 		Port:      cfg.SMTPPort,
@@ -62,15 +69,17 @@ func main() {
 		FromName:  cfg.MailFromName,
 		SiteURL:   cfg.SiteURL,
 	})
+	// Drain remaining jobs on shutdown.
+	defer mail.Close()
 
-	// GeoIP resolver (graceful degradation if no DB file)
+	// ── GeoIP resolver (graceful degradation if no DB file) ──────────────────
 	geo := service.NewGeoResolver(cfg.GeoDBPath, cfg.GeoASNDBPath, logger)
 	defer geo.Close()
 
-	// Services
-	authSvc     := service.NewAuthService(userRepo, logRepo, mail, geo, logger, cfg.JWTSecret, cfg.SiteURL)
+	// ── Services ──────────────────────────────────────────────────────────────
+	authSvc     := service.NewAuthService(userRepo, regRepo, consentRepo, logRepo, mail, geo, logger, cfg.JWTSecret, cfg.SiteURL)
 	fieldSvc    := service.NewFieldService(fieldRepo, logger)
-	regSvc      := service.NewRegistrationService(userRepo, eventRepo, regRepo, fieldRepo, logRepo, mail, geo, logger, cfg.SiteURL)
+	regSvc      := service.NewRegistrationService(userRepo, eventRepo, regRepo, fieldRepo, logRepo, consentRepo, mail, geo, logger, cfg.SiteURL)
 	eventSvc    := service.NewEventService(eventRepo, logger)
 	adminSvc    := service.NewAdminService(regRepo, eventRepo, logRepo, mail, authSvc, logger,
 		cfg.AdminEmail, cfg.AdminPasswordHash, cfg.AdminName)
@@ -78,7 +87,7 @@ func main() {
 	trackingSvc := service.NewTrackingService(trackingRepo, regRepo, geo, logger)
 	ticketSvc   := service.NewTicketService(regRepo, eventRepo, userRepo, logger, cfg.SiteURL)
 
-	// Handlers
+	// ── Handlers ──────────────────────────────────────────────────────────────
 	regHandler      := handler.NewRegistrationHandler(regSvc, logger)
 	authHandler     := handler.NewAuthHandler(authSvc, regRepo, logger)
 	eventHandler    := handler.NewEventHandler(eventSvc, logger)
@@ -88,14 +97,15 @@ func main() {
 	fieldHandler    := handler.NewFieldHandler(fieldSvc, logger)
 	ticketHandler   := handler.NewTicketHandler(ticketSvc, logger)
 
-	// Router
+	// ── Router ────────────────────────────────────────────────────────────────
 	if os.Getenv("GIN_MODE") == "" {
 		gin.SetMode(gin.ReleaseMode)
 	}
+
 	// Rate limiters
-	registerLimiter   := middleware.NewRateLimiter(5, 30*time.Second)  // 5 reg attempts / 30 s per IP
-	otpLimiter        := middleware.NewRateLimiter(10, time.Minute)    // 10 OTP tries / min per IP
-	adminLoginLimiter := middleware.NewRateLimiter(5, time.Minute)     // 5 admin login tries / min
+	registerLimiter   := middleware.NewRateLimiter(5, 30*time.Second)   // 5 reg attempts / 30 s per IP
+	otpLimiter        := middleware.NewRateLimiter(10, time.Minute)     // 10 OTP tries / min per IP
+	adminLoginLimiter := middleware.NewRateLimiter(5, time.Minute)      // 5 admin login tries / min
 
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -103,6 +113,13 @@ func main() {
 	r.Use(middleware.Logger(logger))
 
 	r.GET("/health", func(c *gin.Context) {
+		// Include a lightweight DB ping so the health check reflects actual readiness.
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		if err := db.PingContext(ctx); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "db": err.Error()})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Format(time.RFC3339)})
 	})
 
@@ -110,8 +127,8 @@ func main() {
 	api := r.Group("/api")
 	{
 		// Public registration routes (rate-limited)
-		api.POST("/register", registerLimiter.Limit(), regHandler.HandleRegister)
-		api.POST("/verify-otp", otpLimiter.Limit(), regHandler.HandleVerifyOTP)
+		api.POST("/register",    registerLimiter.Limit(), regHandler.HandleRegister)
+		api.POST("/verify-otp",  otpLimiter.Limit(),      regHandler.HandleVerifyOTP)
 
 		// Public event list
 		eventHandler.RegisterRoutes(api)
@@ -119,7 +136,7 @@ func main() {
 		// Public custom fields per event (for registration form rendering)
 		fieldHandler.RegisterPublicRoutes(api)
 
-		// Cabinet (JWT-protected)
+		// Cabinet (JWT-protected): auth, profile, password, events, cancel, data-export, delete-account
 		authHandler.RegisterRoutes(api, authMW)
 
 		// Participant tracking (JWT-protected) + admin tracking list
@@ -127,8 +144,8 @@ func main() {
 		trackingHandler.RegisterRoutes(api, authMW, authMW, adminRoleMW)
 
 		// Admin auth (rate-limited) + admin panel
-		api.POST("/admin/login", adminLoginLimiter.Limit(), adminHandler.Login)
-		api.POST("/admin/verify-otp", otpLimiter.Limit(), adminHandler.VerifyOTP)
+		api.POST("/admin/login",      adminLoginLimiter.Limit(), adminHandler.Login)
+		api.POST("/admin/verify-otp", otpLimiter.Limit(),        adminHandler.VerifyOTP)
 		adminHandler.RegisterProtectedRoutes(api, authMW)
 
 		// Admin event fields CRUD
@@ -161,7 +178,7 @@ func main() {
 	<-quit
 
 	logger.Info("shutting down...")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error("server forced to shutdown", zap.Error(err))

@@ -215,17 +215,65 @@ func (r *RegistrationRepository) ListByUserVerified(ctx context.Context, userID 
 	return events, nil
 }
 
+// CountVerifiedByEvent returns the number of verified registrations for an event.
+// Used for capacity enforcement before inserting a new registration.
+func (r *RegistrationRepository) CountVerifiedByEvent(ctx context.Context, tx *sqlx.Tx, eventID int) (int, error) {
+	var n int
+	err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM reg_registrations WHERE event_id = $1 AND status = 'verified'`, eventID,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("reg CountVerifiedByEvent: %w", err)
+	}
+	return n, nil
+}
+
+// CancelByUser sets a registration status to 'cancelled' for the given user and event.
+// Returns false (no error) if the registration does not exist or is already cancelled.
+func (r *RegistrationRepository) CancelByUser(ctx context.Context, userID, eventID int) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE reg_registrations
+		 SET status = 'cancelled', updated_at = NOW()
+		 WHERE user_id = $1 AND event_id = $2 AND status != 'cancelled'`,
+		userID, eventID,
+	)
+	if err != nil {
+		return fmt.Errorf("reg CancelByUser: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("регистрация не найдена или уже отменена")
+	}
+	return nil
+}
+
 // GetStats fetches dashboard counters.
 func (r *RegistrationRepository) GetStats(ctx context.Context) (*model.Stats, error) {
 	var s model.Stats
 	err := r.db.GetContext(ctx, &s, `
 		SELECT
-			(SELECT COUNT(*) FROM reg_users) AS total_users,
-			(SELECT COUNT(*) FROM reg_registrations WHERE status = 'verified') AS verified_regs,
-			(SELECT COUNT(*) FROM reg_registrations WHERE status = 'pending')  AS pending_regs,
-			(SELECT COUNT(*) FROM reg_events WHERE is_active = TRUE)           AS active_events`)
+			(SELECT COUNT(*) FROM reg_users)                                              AS total_users,
+			(SELECT COUNT(*) FROM reg_registrations WHERE status = 'verified')            AS verified_regs,
+			(SELECT COUNT(*) FROM reg_registrations WHERE status = 'pending')             AS pending_regs,
+			(SELECT COUNT(*) FROM reg_events       WHERE is_active = TRUE)                AS active_events,
+			(SELECT COUNT(*) FROM reg_registrations WHERE checked_in_at IS NOT NULL)      AS checked_in`)
 	if err != nil {
 		return nil, fmt.Errorf("reg GetStats: %w", err)
 	}
 	return &s, nil
+}
+
+// ListRegistrationsForExport returns all registrations for a user (for GDPR data export).
+func (r *RegistrationRepository) ListRegistrationsForExport(ctx context.Context, userID int) ([]model.RegistrationExport, error) {
+	var rows []model.RegistrationExport
+	err := r.db.SelectContext(ctx, &rows, `
+		SELECT r.event_id, e.title AS event_title, r.status, r.created_at
+		FROM   reg_registrations r
+		JOIN   reg_events e ON e.id = r.event_id
+		WHERE  r.user_id = $1
+		ORDER  BY r.created_at DESC`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("reg ListRegistrationsForExport: %w", err)
+	}
+	return rows, nil
 }

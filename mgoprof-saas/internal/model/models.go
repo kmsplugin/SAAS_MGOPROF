@@ -55,6 +55,11 @@ type Event struct {
 	Description string     `db:"description"  json:"description"`
 	EventDate   string     `db:"event_date"   json:"event_date"`
 	EventTime   string     `db:"event_time"   json:"event_time"`
+	StartAt     *time.Time `db:"start_at"     json:"start_at,omitempty"`
+	Venue       string     `db:"venue"        json:"venue"`
+	Address     string     `db:"address"      json:"address"`
+	Capacity    int        `db:"capacity"     json:"capacity"` // 0 = unlimited
+	CoverURL    string     `db:"cover_url"    json:"cover_url"`
 	CabinetLink string     `db:"cabinet_link" json:"cabinet_link"`
 	IsActive    bool       `db:"is_active"    json:"is_active"`
 	IsOnline    bool       `db:"is_online"    json:"is_online"`
@@ -181,6 +186,7 @@ type Stats struct {
 	VerifiedRegs  int `db:"verified_regs"  json:"verified_regs"`
 	PendingRegs   int `db:"pending_regs"   json:"pending_regs"`
 	ActiveEvents  int `db:"active_events"  json:"active_events"`
+	CheckedIn     int `db:"checked_in"     json:"checked_in"`
 }
 
 // Geo holds geographic information resolved from an IP address.
@@ -265,6 +271,8 @@ type RegisterRequest struct {
 	UnionTicket   string        `json:"union_ticket"`
 	ExtraInfo     string        `json:"extra_info"`
 	Answers       []AnswerInput `json:"answers"`
+	// ConsentGiven must be true; required by 152-ФЗ ст.9, GDPR Art.7, CCPA §1798.135.
+	ConsentGiven  bool          `json:"consent_given"  binding:"required"`
 }
 
 type TrackActionRequest struct {
@@ -306,13 +314,61 @@ type AdminVerifyOTPRequest struct {
 }
 
 type CreateEventRequest struct {
-	Title       string `json:"title"        binding:"required"`
-	Description string `json:"description"`
-	EventDate   string `json:"event_date"   binding:"required"`
-	EventTime   string `json:"event_time"   binding:"required"`
-	CabinetLink string `json:"cabinet_link"`
-	IsActive    bool   `json:"is_active"`
-	IsOnline    bool   `json:"is_online"`
+	Title       string  `json:"title"        binding:"required"`
+	Description string  `json:"description"`
+	EventDate   string  `json:"event_date"   binding:"required"`
+	EventTime   string  `json:"event_time"   binding:"required"`
+	StartAt     *string `json:"start_at"`    // RFC3339 or null
+	Venue       string  `json:"venue"`
+	Address     string  `json:"address"`
+	Capacity    int     `json:"capacity"`    // 0 = unlimited
+	CoverURL    string  `json:"cover_url"`
+	CabinetLink string  `json:"cabinet_link"`
+	IsActive    bool    `json:"is_active"`
+	IsOnline    bool    `json:"is_online"`
+}
+
+// UpdateProfileRequest is used by PUT /api/cabinet/profile.
+type UpdateProfileRequest struct {
+	FirstName     string `json:"first_name"     binding:"required"`
+	LastName      string `json:"last_name"      binding:"required"`
+	Patronymic    string `json:"patronymic"`
+	Organization  string `json:"organization"   binding:"required"`
+	District      string `json:"district"       binding:"required"`
+	IsUnionMember bool   `json:"is_union_member"`
+	UnionTicket   string `json:"union_ticket"`
+	ExtraInfo     string `json:"extra_info"`
+}
+
+// ChangePasswordRequest is used by PUT /api/cabinet/password.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password"     binding:"required,min=6"`
+}
+
+// ConsentRecord is returned in data-export responses.
+type ConsentRecord struct {
+	EventID     int        `db:"event_id"    json:"event_id"`
+	EventTitle  string     `db:"event_title" json:"event_title"`
+	Version     string     `db:"version"     json:"version"`
+	ConsentedAt time.Time  `db:"consented_at" json:"consented_at"`
+	WithdrawnAt *time.Time `db:"withdrawn_at" json:"withdrawn_at,omitempty"`
+}
+
+// DataExport bundles all personal data for a user (GDPR Art.15 / 152-ФЗ ст.14).
+type DataExport struct {
+	User          User                 `json:"user"`
+	Registrations []RegistrationExport `json:"registrations"`
+	Consents      []ConsentRecord      `json:"consents"`
+	ExportedAt    time.Time            `json:"exported_at"`
+}
+
+// RegistrationExport is a simplified registration row for data export.
+type RegistrationExport struct {
+	EventID   int       `db:"event_id"    json:"event_id"`
+	EventTitle string   `db:"event_title" json:"event_title"`
+	Status    string    `db:"status"      json:"status"`
+	CreatedAt time.Time `db:"created_at"  json:"created_at"`
 }
 
 type ErrorResponse struct {

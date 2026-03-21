@@ -19,6 +19,10 @@ venv/
 # Go
 *.test
 coverage.out
+mgoprof-saas/server
+platform/apps/api/server
+platform/apps/media-service/server
+platform/apps/ai-service/server
 
 # Node
 node_modules/

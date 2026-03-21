@@ -6,152 +6,161 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	"go.uber.org/zap"
 )
 
-// TranscriptionProvider — интерфейс транскрипции, позволяет заменить backend.
-type TranscriptionProvider interface {
-	Transcribe(ctx context.Context, audioPath, language string) (string, error)
-}
-
-// WhisperTranscriber — реализация через OpenAI Whisper API.
-type WhisperTranscriber struct {
-	apiKey  string
+// SpeechServiceTranscriber — реализует TranscriptionProvider через speech-service.
+// speech-service — self-hosted pipeline (faster-whisper + WhisperX + pyannote).
+// Никаких платных API — всё локально.
+type SpeechServiceTranscriber struct {
 	baseURL string
+	token   string
 	client  *http.Client
 	logger  *zap.Logger
 }
 
-func NewWhisperTranscriber(apiKey string, logger *zap.Logger) *WhisperTranscriber {
-	return &WhisperTranscriber{
-		apiKey:  apiKey,
-		baseURL: "https://api.openai.com/v1/audio/transcriptions",
-		client:  &http.Client{Timeout: 10 * time.Minute},
+func NewSpeechServiceTranscriber(baseURL, token string, logger *zap.Logger) *SpeechServiceTranscriber {
+	return &SpeechServiceTranscriber{
+		baseURL: baseURL,
+		token:   token,
+		client:  &http.Client{Timeout: 30 * time.Minute},
 		logger:  logger,
 	}
 }
 
-// Transcribe отправляет аудиофайл в OpenAI Whisper и возвращает текст.
-func (w *WhisperTranscriber) Transcribe(ctx context.Context, audioPath, language string) (string, error) {
-	w.logger.Info("whisper: starting transcription", zap.String("path", audioPath), zap.String("lang", language))
+type speechProcessReq struct {
+	EventID   string   `json:"event_id"`
+	TenantID  string   `json:"tenant_id"`
+	AudioURL  string   `json:"audio_url"`
+	Language  string   `json:"language"`
+	Diarize   bool     `json:"diarize"`
+	ExportFmt []string `json:"export_formats"`
+}
 
-	f, err := os.Open(audioPath)
+type speechJobResp struct {
+	JobID   string `json:"job_id"`
+	EventID string `json:"event_id"`
+	Status  string `json:"status"`
+}
+
+type speechJobStatus struct {
+	JobID  string `json:"job_id"`
+	Status string `json:"status"` // queued | processing | done | failed
+	Step   string `json:"step"`
+	Error  string `json:"error"`
+}
+
+type speechResult struct {
+	Transcript string `json:"transcript"`
+	Language   string `json:"language_detected"`
+}
+
+// Transcribe делегирует транскрипцию в speech-service (self-hosted).
+// Ждёт завершения задачи (polling) и возвращает текст транскрипции.
+func (s *SpeechServiceTranscriber) Transcribe(ctx context.Context, audioPath, language string) (string, error) {
+	s.logger.Info("speech-service: submitting job",
+		zap.String("path", audioPath),
+		zap.String("lang", language),
+	)
+
+	// Если путь локальный — speech-service должен иметь доступ к тому же тому
+	audioURL := audioPath
+	if len(audioPath) > 0 && audioPath[0] == '/' {
+		audioURL = "file://" + audioPath
+	}
+
+	reqBody := speechProcessReq{
+		EventID:   "internal",
+		TenantID:  "internal",
+		AudioURL:  audioURL,
+		Language:  language,
+		Diarize:   false,
+		ExportFmt: []string{"json"},
+	}
+
+	body, _ := json.Marshal(reqBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.baseURL+"/process", bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("whisper: open file: %w", err)
+		return "", fmt.Errorf("speech-service: new request: %w", err)
 	}
-	defer f.Close()
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Token", s.token)
 
-	var buf bytes.Buffer
-	mw := multipart.NewWriter(&buf)
-
-	fw, err := mw.CreateFormFile("file", filepath.Base(audioPath))
+	resp, err := s.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("whisper: create form file: %w", err)
-	}
-	if _, err = io.Copy(fw, f); err != nil {
-		return "", fmt.Errorf("whisper: copy file: %w", err)
-	}
-
-	_ = mw.WriteField("model", "whisper-1")
-	_ = mw.WriteField("response_format", "text")
-
-	if language != "" && language != "auto" {
-		_ = mw.WriteField("language", language)
-	}
-
-	if err = mw.Close(); err != nil {
-		return "", fmt.Errorf("whisper: close writer: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.baseURL, &buf)
-	if err != nil {
-		return "", fmt.Errorf("whisper: new request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+w.apiKey)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-
-	resp, err := w.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("whisper: do request: %w", err)
+		return "", fmt.Errorf("speech-service: submit: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("whisper: read body: %w", err)
+	if resp.StatusCode != http.StatusAccepted {
+		b, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("speech-service: submit status %d: %s", resp.StatusCode, string(b))
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("whisper: api error %d: %s", resp.StatusCode, string(body))
+	var jobResp speechJobResp
+	if err = json.NewDecoder(resp.Body).Decode(&jobResp); err != nil {
+		return "", fmt.Errorf("speech-service: decode job: %w", err)
 	}
 
-	transcript := string(body)
-	w.logger.Info("whisper: transcription done", zap.Int("chars", len(transcript)))
-	return transcript, nil
+	return s.waitForResult(ctx, jobResp.JobID, jobResp.EventID)
 }
 
-// DownloadAudio скачивает аудиофайл по URL во временную директорию.
-// Возвращает путь к временному файлу (вызывающий обязан удалить его после использования).
-func DownloadAudio(ctx context.Context, audioURL string, maxSize int64, logger *zap.Logger) (string, error) {
-	logger.Info("download: fetching audio", zap.String("url", audioURL))
+func (s *SpeechServiceTranscriber) waitForResult(ctx context.Context, jobID, eventID string) (string, error) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, audioURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("download: new request: %w", err)
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-ticker.C:
+			status, err := s.pollJob(ctx, jobID)
+			if err != nil {
+				s.logger.Warn("speech-service: poll error", zap.Error(err))
+				continue
+			}
+			s.logger.Info("speech-service: job",
+				zap.String("id", jobID),
+				zap.String("status", status.Status),
+				zap.String("step", status.Step),
+			)
+			switch status.Status {
+			case "done":
+				return s.fetchTranscript(ctx, eventID)
+			case "failed":
+				return "", fmt.Errorf("speech-service: job failed: %s", status.Error)
+			}
+		}
 	}
+}
 
-	client := &http.Client{Timeout: 30 * time.Minute}
-	resp, err := client.Do(req)
+func (s *SpeechServiceTranscriber) pollJob(ctx context.Context, jobID string) (*speechJobStatus, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/jobs/"+jobID, nil)
+	resp, err := s.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("download: do request: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download: status %d for %s", resp.StatusCode, audioURL)
+	var status speechJobStatus
+	if err = json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		return nil, err
 	}
-
-	ext := filepath.Ext(audioURL)
-	if ext == "" {
-		ext = ".mp4"
-	}
-
-	tmp, err := os.CreateTemp("", "ai-audio-*"+ext)
-	if err != nil {
-		return "", fmt.Errorf("download: create temp: %w", err)
-	}
-	defer tmp.Close()
-
-	limited := io.LimitReader(resp.Body, maxSize)
-	written, err := io.Copy(tmp, limited)
-	if err != nil {
-		os.Remove(tmp.Name())
-		return "", fmt.Errorf("download: copy: %w", err)
-	}
-
-	logger.Info("download: saved audio", zap.String("path", tmp.Name()), zap.Int64("bytes", written))
-	return tmp.Name(), nil
+	return &status, nil
 }
 
-// whisperErrorResponse — структура ошибки от OpenAI API.
-type whisperErrorResponse struct {
-	Error struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-	} `json:"error"`
-}
-
-// parseWhisperError пытается распарсить JSON-ошибку от OpenAI.
-func parseWhisperError(body []byte) string {
-	var e whisperErrorResponse
-	if json.Unmarshal(body, &e) == nil && e.Error.Message != "" {
-		return e.Error.Message
+func (s *SpeechServiceTranscriber) fetchTranscript(ctx context.Context, eventID string) (string, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/results/"+eventID, nil)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("speech-service: fetch result: %w", err)
 	}
-	return string(body)
+	defer resp.Body.Close()
+	var result speechResult
+	if err = json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("speech-service: decode result: %w", err)
+	}
+	return result.Transcript, nil
 }

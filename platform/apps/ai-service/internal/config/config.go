@@ -14,7 +14,9 @@ type Config struct {
 	AnthropicAPIKey string
 	AnthropicModel  string
 
-	OpenAIAPIKey string
+	// speech-service — self-hosted STT/diarization/NLP (заменяет OpenAI Whisper)
+	SpeechServiceURL   string
+	SpeechServiceToken string
 
 	LiveKitWebhookSecret string
 
@@ -32,7 +34,8 @@ func Load() (*Config, error) {
 		DatabaseURL:          getEnv("DATABASE_URL", "postgres://platform:platform_secret@localhost:5432/platform?sslmode=disable"),
 		AnthropicAPIKey:      getEnv("ANTHROPIC_API_KEY", ""),
 		AnthropicModel:       getEnv("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-		OpenAIAPIKey:         getEnv("OPENAI_API_KEY", ""),
+		SpeechServiceURL:     getEnv("SPEECH_SERVICE_URL", "http://localhost:8030"),
+		SpeechServiceToken:   getEnv("SPEECH_SERVICE_TOKEN", "dev_internal_token"),
 		LiveKitWebhookSecret: getEnv("LIVEKIT_API_SECRET", "devsecret"),
 		WorkerCount:          3,
 		QueueSize:            50,

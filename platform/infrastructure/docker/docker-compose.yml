@@ -97,7 +97,7 @@ services:
     depends_on:
       - livekit
 
-  # ── AI Service (Go — transcription + Claude analysis) ────────────────────
+  # ── AI Service (Go — job queue + Claude analysis orchestrator) ──────────────
 
   ai-service:
     build:
@@ -108,15 +108,55 @@ services:
     environment:
       DATABASE_URL: postgres://platform:platform_secret@postgres:5432/platform?sslmode=disable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_MODEL: claude-sonnet-4-6
+      SPEECH_SERVICE_URL: http://speech-service:8030
+      SPEECH_SERVICE_TOKEN: dev_internal_token
       LIVEKIT_API_SECRET: devsecret
       PORT: 8020
       GIN_MODE: release
     depends_on:
       postgres:
         condition: service_healthy
+      speech-service:
+        condition: service_started
     restart: unless-stopped
+
+  # ── Speech Service (Python — VAD/ASR/Diarization/NLP/Export) ─────────────
+
+  speech-service:
+    build:
+      context: ../../apps/speech-service
+      dockerfile: Dockerfile
+    ports:
+      - "8030:8030"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://platform:platform_secret@postgres:5432/platform
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: claude-sonnet-4-6
+      HF_TOKEN: ${HF_TOKEN:-}            # HuggingFace token для pyannote.audio
+      WHISPER_MODEL: large-v3
+      WHISPER_DEVICE: cpu                # cpu | cuda
+      WHISPER_COMPUTE_TYPE: int8
+      INTERNAL_TOKEN: dev_internal_token
+      DIARIZATION_ENABLED: "true"
+      TRANSLATION_ENABLED: "true"
+      PORT: 8030
+    volumes:
+      - speech_models:/data              # кэш ML-моделей (large-v3 ~3GB)
+      - /tmp/speech:/tmp/speech          # временные аудиофайлы
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # На CPU large-v3 медленно — для прода используй WHISPER_DEVICE=cuda
+    # и раскомментируй GPU секцию:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
   # ── Web Frontend (Next.js) ────────────────────────────────────────────────
 
@@ -135,3 +175,4 @@ volumes:
   postgres_data:
   redis_data:
   egress_data:
+  speech_models:

@@ -45,15 +45,13 @@ func main() {
 	// ── Services ────────────────────────────────────────────────
 	repo := repository.NewAIRepository(db)
 
-	var transcriber service.TranscriptionProvider
-	if cfg.OpenAIAPIKey != "" {
-		transcriber = service.NewWhisperTranscriber(cfg.OpenAIAPIKey, logger)
-		logger.Info("transcription: using OpenAI Whisper")
-	} else {
-		// Заглушка для разработки без Whisper API
-		transcriber = &noopTranscriber{logger: logger}
-		logger.Warn("transcription: OPENAI_API_KEY not set, using noop transcriber (dev mode)")
-	}
+	// Транскрипция через self-hosted speech-service (faster-whisper + WhisperX + pyannote)
+	transcriber := service.NewSpeechServiceTranscriber(
+		cfg.SpeechServiceURL,
+		cfg.SpeechServiceToken,
+		logger,
+	)
+	logger.Info("transcription: using self-hosted speech-service", zap.String("url", cfg.SpeechServiceURL))
 
 	claudeClient := service.NewClaudeClient(cfg.AnthropicAPIKey, cfg.AnthropicModel, logger)
 	pipeline := service.NewPipeline(transcriber, claudeClient, repo, cfg.MaxAudioSize, logger)
@@ -143,15 +141,3 @@ func ginZapLogger(logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-// noopTranscriber — заглушка транскрипции для dev-режима без OpenAI ключа.
-type noopTranscriber struct {
-	logger *zap.Logger
-}
-
-func (n *noopTranscriber) Transcribe(_ context.Context, audioPath, _ string) (string, error) {
-	n.logger.Warn("noop transcriber: returning placeholder transcript",
-		zap.String("path", audioPath),
-	)
-	return "[Транскрипция недоступна: не задан OPENAI_API_KEY. " +
-		"Установите переменную окружения для активации Whisper транскрипции.]", nil
-}

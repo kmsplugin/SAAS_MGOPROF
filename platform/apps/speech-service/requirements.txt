@@ -1,0 +1,46 @@
+# ── Web framework ─────────────────────────────────────────────────────────────
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9
+httpx==0.27.0
+pydantic==2.7.1
+pydantic-settings==2.3.1
+
+# ── Database ──────────────────────────────────────────────────────────────────
+asyncpg==0.29.0
+sqlalchemy[asyncio]==2.0.30
+
+# ── VAD ───────────────────────────────────────────────────────────────────────
+silero-vad==5.1.2
+
+# ── ASR — faster-whisper (CTranslate2-based, ~4x faster than original) ───────
+faster-whisper==1.0.3
+
+# ── Alignment + forced alignment (word-level timestamps) ─────────────────────
+whisperx==3.1.5
+
+# ── Diarization — pyannote.audio ─────────────────────────────────────────────
+pyannote.audio==3.3.1
+
+# ── Punctuation restoration ───────────────────────────────────────────────────
+deepmultilingualpunctuation==1.0.1
+
+# ── Translation (Helsinki-NLP opus-mt via transformers) ──────────────────────
+transformers==4.41.2
+sentencepiece==0.2.0
+sacremoses==0.1.1
+
+# ── Keyword extraction ────────────────────────────────────────────────────────
+keybert==0.8.5
+scikit-learn==1.5.0
+
+# ── Export formats ────────────────────────────────────────────────────────────
+python-docx==1.1.2
+
+# ── Torch (CPU default; override with CUDA wheel in prod) ─────────────────────
+torch==2.3.0
+torchaudio==2.3.0
+
+# ── Utils ─────────────────────────────────────────────────────────────────────
+numpy==1.26.4
+aiofiles==23.2.1

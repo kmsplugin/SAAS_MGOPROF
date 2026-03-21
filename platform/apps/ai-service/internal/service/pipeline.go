@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,22 +53,8 @@ func (p *Pipeline) Process(ctx context.Context, job model.AIJob) error {
 		return fmt.Errorf("pipeline: ai not enabled for tenant %s", job.TenantID)
 	}
 
-	// 1. Скачиваем аудиофайл если это HTTP URL
+	// 1. Передаём URL напрямую в speech-service — он скачивает и обрабатывает сам
 	audioPath := job.AudioURL
-	isTemp := false
-	if len(audioPath) > 4 && (audioPath[:7] == "http://" || audioPath[:8] == "https://") {
-		audioPath, err = DownloadAudio(ctx, job.AudioURL, p.maxAudioSize, p.logger)
-		if err != nil {
-			return fmt.Errorf("pipeline: download audio: %w", err)
-		}
-		isTemp = true
-	}
-	if isTemp {
-		defer func() {
-			os.Remove(audioPath)
-			p.logger.Debug("pipeline: removed temp file", zap.String("path", audioPath))
-		}()
-	}
 
 	// 2. Транскрипция
 	lang := job.Language

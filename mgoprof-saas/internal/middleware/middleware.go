@@ -38,7 +38,7 @@ func Auth(authSvc *service.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		userID, role, err := authSvc.ParseToken(token)
+		userID, role, email, err := authSvc.ParseToken(token)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, model.ErrorResponse{
 				Status:  "error",
@@ -49,21 +49,26 @@ func Auth(authSvc *service.AuthService) gin.HandlerFunc {
 
 		c.Set("user_id", userID)
 		c.Set("role", role)
+		c.Set("email", email)
 		c.Next()
 	}
 }
 
-// RequireRole aborts with 403 if the JWT role doesn't match.
-func RequireRole(role string) gin.HandlerFunc {
+// RequireRole aborts with 403 if the JWT role is not in the allowed list.
+// Accepts one or more roles: RequireRole("admin") or RequireRole("admin","operator").
+func RequireRole(roles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.GetString("role") != role {
-			c.AbortWithStatusJSON(http.StatusForbidden, model.ErrorResponse{
-				Status:  "error",
-				Message: "доступ запрещён",
-			})
-			return
+		got := c.GetString("role")
+		for _, r := range roles {
+			if got == r {
+				c.Next()
+				return
+			}
 		}
-		c.Next()
+		c.AbortWithStatusJSON(http.StatusForbidden, model.ErrorResponse{
+			Status:  "error",
+			Message: "доступ запрещён",
+		})
 	}
 }
 

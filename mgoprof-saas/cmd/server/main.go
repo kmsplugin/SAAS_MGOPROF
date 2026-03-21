@@ -56,10 +56,11 @@ func main() {
 	trackingRepo := repository.NewTrackingRepository(db)
 	fieldRepo    := repository.NewFieldRepository(db)
 	consentRepo  := repository.NewConsentRepository(db)
+	questionRepo := repository.NewQuestionRepository(db)
+	adminRepo    := repository.NewAdminRepository(db)
 
 	// ── Mailer (async worker pool — 5 workers, buffer 500 jobs) ──────────────
 	// Workers drain the channel concurrently so HTTP handlers never block on SMTP.
-	// See mailer package docs for the full scalability rationale.
 	mail := mailer.New(mailer.Config{
 		Host:      cfg.SMTPHost,
 		Port:      cfg.SMTPPort,
@@ -81,21 +82,28 @@ func main() {
 	fieldSvc    := service.NewFieldService(fieldRepo, logger)
 	regSvc      := service.NewRegistrationService(userRepo, eventRepo, regRepo, fieldRepo, logRepo, consentRepo, mail, geo, logger, cfg.SiteURL)
 	eventSvc    := service.NewEventService(eventRepo, logger)
-	adminSvc    := service.NewAdminService(regRepo, eventRepo, logRepo, mail, authSvc, logger,
-		cfg.AdminEmail, cfg.AdminPasswordHash, cfg.AdminName)
+	adminSvc    := service.NewAdminService(
+		regRepo, eventRepo, logRepo, adminRepo, mail, authSvc, logger,
+		cfg.AdminEmail, cfg.AdminPasswordHash, cfg.AdminName,
+	)
 	reportSvc   := service.NewReportService(reportRepo, eventRepo, logger)
 	trackingSvc := service.NewTrackingService(trackingRepo, regRepo, geo, logger)
 	ticketSvc   := service.NewTicketService(regRepo, eventRepo, userRepo, logger, cfg.SiteURL)
 
+	// ── Bootstrap super_admin from env vars (idempotent) ─────────────────────
+	adminSvc.BootstrapSuperAdmin(context.Background())
+
 	// ── Handlers ──────────────────────────────────────────────────────────────
-	regHandler      := handler.NewRegistrationHandler(regSvc, logger)
-	authHandler     := handler.NewAuthHandler(authSvc, regRepo, logger)
-	eventHandler    := handler.NewEventHandler(eventSvc, logger)
-	adminHandler    := handler.NewAdminHandler(adminSvc, eventSvc, authSvc, logger)
-	reportHandler   := handler.NewReportHandler(reportSvc, logger)
-	trackingHandler := handler.NewTrackingHandler(trackingSvc, logger)
-	fieldHandler    := handler.NewFieldHandler(fieldSvc, logger)
-	ticketHandler   := handler.NewTicketHandler(ticketSvc, logger)
+	regHandler        := handler.NewRegistrationHandler(regSvc, logger)
+	authHandler       := handler.NewAuthHandler(authSvc, regRepo, logger)
+	eventHandler      := handler.NewEventHandler(eventSvc, logger)
+	adminHandler      := handler.NewAdminHandler(adminSvc, eventSvc, authSvc, logger)
+	reportHandler     := handler.NewReportHandler(reportSvc, logger)
+	trackingHandler   := handler.NewTrackingHandler(trackingSvc, logger)
+	fieldHandler      := handler.NewFieldHandler(fieldSvc, logger)
+	ticketHandler     := handler.NewTicketHandler(ticketSvc, logger)
+	questionHandler   := handler.NewQuestionHandler(questionRepo, mail, logger, cfg.SiteURL)
+	superAdminHandler := handler.NewSuperAdminHandler(adminRepo, logger)
 
 	// ── Router ────────────────────────────────────────────────────────────────
 	if os.Getenv("GIN_MODE") == "" {
@@ -103,9 +111,9 @@ func main() {
 	}
 
 	// Rate limiters
-	registerLimiter   := middleware.NewRateLimiter(5, 30*time.Second)   // 5 reg attempts / 30 s per IP
-	otpLimiter        := middleware.NewRateLimiter(10, time.Minute)     // 10 OTP tries / min per IP
-	adminLoginLimiter := middleware.NewRateLimiter(5, time.Minute)      // 5 admin login tries / min
+	registerLimiter   := middleware.NewRateLimiter(5, 30*time.Second)  // 5 reg attempts / 30 s per IP
+	otpLimiter        := middleware.NewRateLimiter(10, time.Minute)    // 10 OTP tries / min per IP
+	adminLoginLimiter := middleware.NewRateLimiter(5, time.Minute)     // 5 admin login tries / min
 
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -139,14 +147,20 @@ func main() {
 		// Cabinet (JWT-protected): auth, profile, password, events, cancel, data-export, delete-account
 		authHandler.RegisterRoutes(api, authMW)
 
+		// Cabinet Q&A: questions, messages
+		questionHandler.RegisterCabinetRoutes(api, authMW)
+
 		// Participant tracking (JWT-protected) + admin tracking list
-		adminRoleMW := middleware.RequireRole("admin")
+		adminRoleMW := middleware.RequireRole("admin", "super_admin")
 		trackingHandler.RegisterRoutes(api, authMW, authMW, adminRoleMW)
 
 		// Admin auth (rate-limited) + admin panel
 		api.POST("/admin/login",      adminLoginLimiter.Limit(), adminHandler.Login)
 		api.POST("/admin/verify-otp", otpLimiter.Limit(),        adminHandler.VerifyOTP)
 		adminHandler.RegisterProtectedRoutes(api, authMW)
+
+		// Admin Q&A moderation
+		questionHandler.RegisterAdminRoutes(api, authMW)
 
 		// Admin event fields CRUD
 		fieldHandler.RegisterAdminRoutes(api, authMW)
@@ -156,6 +170,9 @@ func main() {
 
 		// Participant tickets + admin check-in
 		ticketHandler.RegisterRoutes(api, authMW)
+
+		// Super admin: admin user management + audit logs
+		superAdminHandler.RegisterRoutes(api, authMW)
 	}
 
 	srv := &http.Server{

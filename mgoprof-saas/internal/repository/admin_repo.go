@@ -285,3 +285,27 @@ func (r *AdminRepository) FailExportJob(ctx context.Context, id int, errMsg stri
 	}
 	return nil
 }
+
+// BootstrapSuperAdmin inserts the first super_admin from env vars if the table is empty.
+// Idempotent: does nothing if a super_admin already exists.
+func (r *AdminRepository) BootstrapSuperAdmin(ctx context.Context, email, name, hash string) error {
+	var count int
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM admin_users WHERE role = 'super_admin'`,
+	).Scan(&count); err != nil {
+		return fmt.Errorf("bootstrap check: %w", err)
+	}
+	if count > 0 {
+		return nil // already bootstrapped
+	}
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO admin_users (email, name, password_hash, role)
+		 VALUES ($1, $2, $3, 'super_admin')
+		 ON CONFLICT (email) DO NOTHING`,
+		email, name, hash,
+	)
+	if err != nil {
+		return fmt.Errorf("bootstrap insert: %w", err)
+	}
+	return nil
+}

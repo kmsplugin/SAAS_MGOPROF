@@ -20,6 +20,8 @@ const adminOTPTTL = 10 * time.Minute
 // In production consider Redis; for single-instance deployment this is sufficient.
 type pendingAdmin struct {
 	email     string
+	adminID   int
+	name      string
 	otpHash   string
 	expiresAt time.Time
 }
@@ -29,6 +31,7 @@ type AdminService struct {
 	regRepo    *repository.RegistrationRepository
 	eventRepo  *repository.EventRepository
 	logRepo    *repository.LogRepository
+	adminRepo  *repository.AdminRepository
 	mailer     *mailer.Mailer
 	authSvc    *AuthService
 	logger     *zap.Logger
@@ -42,6 +45,7 @@ func NewAdminService(
 	regRepo *repository.RegistrationRepository,
 	eventRepo *repository.EventRepository,
 	logRepo *repository.LogRepository,
+	adminRepo *repository.AdminRepository,
 	m *mailer.Mailer,
 	authSvc *AuthService,
 	logger *zap.Logger,
@@ -51,6 +55,7 @@ func NewAdminService(
 		regRepo:    regRepo,
 		eventRepo:  eventRepo,
 		logRepo:    logRepo,
+		adminRepo:  adminRepo,
 		mailer:     m,
 		authSvc:    authSvc,
 		logger:     logger,
@@ -61,20 +66,44 @@ func NewAdminService(
 	}
 }
 
-// Login step 1: verify password, send OTP.
+// Login step 1: verify password against admin_users table (or env-var fallback), send OTP.
 func (s *AdminService) Login(ctx context.Context, req model.AdminLoginRequest, ip, userAgent string) error {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 
-	if email != s.adminEmail {
-		_ = s.logRepo.Write(ctx, "admin_login_failed", email, ip, "wrong email", userAgent)
-		return fmt.Errorf("неверный логин или пароль")
+	var adminID int
+	var adminName string
+
+	// 1. Check admin_users table first (multi-admin support).
+	if s.adminRepo != nil {
+		admin, err := s.adminRepo.FindByEmail(ctx, email)
+		if err != nil {
+			s.logger.Error("admin lookup failed", zap.String("email", email), zap.Error(err))
+			return fmt.Errorf("ошибка аутентификации")
+		}
+		if admin != nil {
+			if err := bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(req.Password)); err != nil {
+				_ = s.logRepo.Write(ctx, "admin_login_failed", email, ip, "wrong password (db)", userAgent)
+				return fmt.Errorf("неверный логин или пароль")
+			}
+			adminID = admin.ID
+			adminName = admin.Name
+		}
 	}
-	if s.adminHash == "" {
-		return fmt.Errorf("пароль администратора не задан")
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(s.adminHash), []byte(req.Password)); err != nil {
-		_ = s.logRepo.Write(ctx, "admin_login_failed", email, ip, "wrong password", userAgent)
-		return fmt.Errorf("неверный логин или пароль")
+
+	// 2. Fall back to env-var single-admin (backward compatibility).
+	if adminID == 0 {
+		if email != s.adminEmail {
+			_ = s.logRepo.Write(ctx, "admin_login_failed", email, ip, "wrong email", userAgent)
+			return fmt.Errorf("неверный логин или пароль")
+		}
+		if s.adminHash == "" {
+			return fmt.Errorf("пароль администратора не задан")
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(s.adminHash), []byte(req.Password)); err != nil {
+			_ = s.logRepo.Write(ctx, "admin_login_failed", email, ip, "wrong password (env)", userAgent)
+			return fmt.Errorf("неверный логин или пароль")
+		}
+		adminName = s.adminName
 	}
 
 	otp := generateOTP()
@@ -85,11 +114,13 @@ func (s *AdminService) Login(ctx context.Context, req model.AdminLoginRequest, i
 
 	s.pending[email] = &pendingAdmin{
 		email:     email,
+		adminID:   adminID,
+		name:      adminName,
 		otpHash:   hash,
 		expiresAt: time.Now().Add(adminOTPTTL),
 	}
 
-	if err := s.mailer.SendAdminOTP(email, s.adminName, otp); err != nil {
+	if err := s.mailer.SendAdminOTP(email, adminName, otp); err != nil {
 		s.logger.Error("admin OTP email failed", zap.String("email", email), zap.Error(err))
 		delete(s.pending, email)
 		return fmt.Errorf("не удалось отправить OTP. Попробуйте позже.")
@@ -99,7 +130,7 @@ func (s *AdminService) Login(ctx context.Context, req model.AdminLoginRequest, i
 	return nil
 }
 
-// VerifyOTP step 2: verify OTP and issue JWT.
+// VerifyOTP step 2: verify OTP and issue JWT with real admin ID.
 func (s *AdminService) VerifyOTP(ctx context.Context, req model.AdminVerifyOTPRequest, ip, userAgent string) (string, error) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 
@@ -118,13 +149,25 @@ func (s *AdminService) VerifyOTP(ctx context.Context, req model.AdminVerifyOTPRe
 
 	delete(s.pending, email)
 
-	token, err := s.authSvc.issueToken(0, email, "admin")
+	// Issue token with real admin ID (0 only for env-var fallback admin).
+	token, err := s.authSvc.issueToken(p.adminID, email, "admin")
 	if err != nil {
 		return "", fmt.Errorf("выпуск токена: %w", err)
 	}
 
 	_ = s.logRepo.Write(ctx, "admin_login_success", email, ip, "admin logged in", userAgent)
 	return token, nil
+}
+
+// BootstrapSuperAdmin seeds the first super_admin from env vars if admin_users is empty.
+// Called once on startup; idempotent.
+func (s *AdminService) BootstrapSuperAdmin(ctx context.Context) {
+	if s.adminRepo == nil || s.adminEmail == "" || s.adminHash == "" {
+		return
+	}
+	if err := s.adminRepo.BootstrapSuperAdmin(ctx, s.adminEmail, s.adminName, s.adminHash); err != nil {
+		s.logger.Error("bootstrap super_admin failed", zap.Error(err))
+	}
 }
 
 // GetStats returns dashboard counters.

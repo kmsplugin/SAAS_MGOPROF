@@ -239,8 +239,8 @@ func (s *AuthService) CancelRegistration(ctx context.Context, userID, eventID in
 	return nil
 }
 
-// ParseToken validates a JWT and returns userID and role.
-func (s *AuthService) ParseToken(tokenStr string) (int, string, error) {
+// ParseToken validates a JWT and returns userID, role, and email.
+func (s *AuthService) ParseToken(tokenStr string) (int, string, string, error) {
 	t, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
@@ -248,16 +248,17 @@ func (s *AuthService) ParseToken(tokenStr string) (int, string, error) {
 		return s.jwtSecret, nil
 	})
 	if err != nil {
-		return 0, "", fmt.Errorf("invalid token: %w", err)
+		return 0, "", "", fmt.Errorf("invalid token: %w", err)
 	}
 	claims, ok := t.Claims.(jwt.MapClaims)
 	if !ok || !t.Valid {
-		return 0, "", fmt.Errorf("invalid token claims")
+		return 0, "", "", fmt.Errorf("invalid token claims")
 	}
 	sub, ok := claims["sub"].(float64)
 	if !ok {
-		return 0, "", fmt.Errorf("invalid token sub")
+		return 0, "", "", fmt.Errorf("invalid token sub")
 	}
 	role, _ := claims["role"].(string)
-	return int(sub), role, nil
+	email, _ := claims["email"].(string)
+	return int(sub), role, email, nil
 }

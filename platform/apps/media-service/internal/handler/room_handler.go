@@ -9,11 +9,10 @@ import (
 	"platform/media-service/internal/service"
 )
 
-// CreateRoomRequest is the body for POST /rooms.
 type CreateRoomRequest struct {
 	Name            string `json:"name"             binding:"required"`
 	MaxParticipants uint32 `json:"max_participants"`
-	EmptyTimeout    uint32 `json:"empty_timeout"`    // seconds, default 300
+	EmptyTimeout    uint32 `json:"empty_timeout"` // seconds, default 300
 }
 
 // RoomHandler exposes room lifecycle endpoints.
@@ -26,7 +25,6 @@ func NewRoomHandler(roomSvc *service.RoomService, logger *zap.Logger) *RoomHandl
 	return &RoomHandler{roomSvc: roomSvc, logger: logger}
 }
 
-// RegisterRoutes wires room endpoints.
 func (h *RoomHandler) RegisterRoutes(r *gin.RouterGroup) {
 	r.POST("/rooms", h.CreateRoom)
 	r.GET("/rooms/:name", h.GetRoom)
@@ -41,10 +39,6 @@ func (h *RoomHandler) CreateRoom(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.EmptyTimeout == 0 {
-		req.EmptyTimeout = 300 // 5 minutes default
-	}
-
 	room, err := h.roomSvc.CreateRoom(c.Request.Context(), req.Name, req.MaxParticipants, req.EmptyTimeout)
 	if err != nil {
 		h.logger.Error("create room failed", zap.String("name", req.Name), zap.Error(err))
@@ -85,8 +79,7 @@ func (h *RoomHandler) ListParticipants(c *gin.Context) {
 }
 
 func (h *RoomHandler) RemoveParticipant(c *gin.Context) {
-	err := h.roomSvc.RemoveParticipant(c.Request.Context(), c.Param("name"), c.Param("identity"))
-	if err != nil {
+	if err := h.roomSvc.RemoveParticipant(c.Request.Context(), c.Param("name"), c.Param("identity")); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

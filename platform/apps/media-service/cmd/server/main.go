@@ -27,11 +27,10 @@ func main() {
 	apiKey        := mustEnv("LIVEKIT_API_KEY")
 	apiSecret     := mustEnv("LIVEKIT_API_SECRET")
 	port          := getEnv("PORT", "8010")
-	// internalToken guards all endpoints — only the platform API calls this service.
 	internalToken := mustEnv("MEDIA_SERVICE_TOKEN")
 
 	tokenSvc := service.NewTokenService(apiKey, apiSecret)
-	roomSvc  := service.NewRoomService(livekitHost, apiKey, apiSecret)
+	roomSvc  := service.NewRoomService(livekitHost, tokenSvc)
 
 	tokenHandler := handler.NewTokenHandler(tokenSvc, livekitURL, logger)
 	roomHandler  := handler.NewRoomHandler(roomSvc, logger)
@@ -44,7 +43,6 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "media-service"})
 	})
 
-	// All media endpoints require the internal service token.
 	media := r.Group("/media", bearerAuth(internalToken))
 	tokenHandler.RegisterRoutes(media)
 	roomHandler.RegisterRoutes(media)
@@ -73,8 +71,6 @@ func main() {
 	logger.Info("media-service stopped")
 }
 
-// bearerAuth is a simple internal token middleware.
-// Replace with mTLS or service-mesh auth in production.
 func bearerAuth(expected string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		auth := c.GetHeader("Authorization")

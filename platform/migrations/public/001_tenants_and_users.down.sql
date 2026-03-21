@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS ai_summaries;
+DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS question_messages;
+DROP TABLE IF EXISTS questions;
+DROP TYPE IF EXISTS question_status;
+DROP TABLE IF EXISTS registrations;
+DROP TABLE IF EXISTS rooms;
+DROP TABLE IF EXISTS events;
+DROP TABLE IF EXISTS user_consents;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS tenants;

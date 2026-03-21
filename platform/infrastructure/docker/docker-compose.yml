@@ -71,9 +71,7 @@ services:
       SITE_URL: http://localhost:3000
       ADMIN_EMAIL: admin@platform.local
       ADMIN_NAME: Администратор
-      LIVEKIT_HOST: ws://livekit:7880
-      LIVEKIT_API_KEY: devkey
-      LIVEKIT_API_SECRET: devsecret
+      LIVEKIT_URL: ws://localhost:7880
       MEDIA_SERVICE_URL: http://media-service:8010
       MEDIA_SERVICE_TOKEN: dev_internal_token
     depends_on:
@@ -92,7 +90,7 @@ services:
       - "8010:8010"
     environment:
       LIVEKIT_HOST: ws://livekit:7880
-      LIVEKIT_URL: ws://localhost:7880
+      LIVEKIT_URL: ws://livekit:7880
       LIVEKIT_API_KEY: devkey
       LIVEKIT_API_SECRET: devsecret
       MEDIA_SERVICE_TOKEN: dev_internal_token

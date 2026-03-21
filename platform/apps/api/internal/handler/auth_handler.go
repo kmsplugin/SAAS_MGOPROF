@@ -24,6 +24,7 @@ func (h *AuthHandler) RegisterRoutes(r *gin.RouterGroup, authMW gin.HandlerFunc)
 	r.POST("/auth/register", h.Register)
 	r.POST("/auth/login", h.Login)
 	r.GET("/auth/me", authMW, h.Me)
+	r.PATCH("/auth/profile", authMW, h.UpdateProfile)
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -58,10 +59,27 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) Me(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
-	user, err := h.authSvc.Me(c.Request.Context(), userID)
+	user, err := h.authSvc.Me(c.Request.Context(), tenantID, userID)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Status: "error", Message: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"user": user})
+}
+
+func (h *AuthHandler) UpdateProfile(c *gin.Context) {
+	var req model.UpdateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Status: "error", Message: err.Error()})
+		return
+	}
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+	user, err := h.authSvc.UpdateProfile(c.Request.Context(), tenantID, userID, req.FirstName, req.LastName, req.AvatarURL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Status: "error", Message: err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"user": user})

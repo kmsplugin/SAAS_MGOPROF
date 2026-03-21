@@ -75,7 +75,7 @@ func (s *RoomService) CreateRoom(ctx context.Context, tenantID, userID string, r
 	}
 
 	// Mark room as active
-	_ = s.roomRepo.SetStatus(ctx, room.ID, "active")
+	_ = s.roomRepo.SetStatus(ctx, tenantID, room.ID, "active")
 	room.Status = "active"
 
 	return room, nil
@@ -126,7 +126,7 @@ func (s *RoomService) EndRoom(ctx context.Context, tenantID, roomID string) erro
 	if err != nil || room == nil {
 		return fmt.Errorf("комната не найдена")
 	}
-	return s.roomRepo.SetStatus(ctx, roomID, "ended")
+	return s.roomRepo.SetStatus(ctx, tenantID, roomID, "ended")
 }
 
 // ── media-service calls ────────────────────────────────────────────────────────

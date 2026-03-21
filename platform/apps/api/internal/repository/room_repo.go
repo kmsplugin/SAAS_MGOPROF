@@ -65,14 +65,14 @@ func (r *RoomRepository) Create(ctx context.Context, tenantID, eventID, livekitN
 	return &room, nil
 }
 
-func (r *RoomRepository) SetStatus(ctx context.Context, id, status string) error {
-	query := `UPDATE rooms SET status = $1 WHERE id = $2`
+func (r *RoomRepository) SetStatus(ctx context.Context, tenantID, id, status string) error {
+	query := `UPDATE rooms SET status = $1 WHERE id = $2 AND tenant_id = $3`
 	if status == "active" {
-		query = `UPDATE rooms SET status = $1, started_at = NOW() WHERE id = $2`
+		query = `UPDATE rooms SET status = $1, started_at = NOW() WHERE id = $2 AND tenant_id = $3`
 	} else if status == "ended" {
-		query = `UPDATE rooms SET status = $1, ended_at = NOW() WHERE id = $2`
+		query = `UPDATE rooms SET status = $1, ended_at = NOW() WHERE id = $2 AND tenant_id = $3`
 	}
-	_, err := r.db.ExecContext(ctx, query, status, id)
+	_, err := r.db.ExecContext(ctx, query, status, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("room SetStatus: %w", err)
 	}

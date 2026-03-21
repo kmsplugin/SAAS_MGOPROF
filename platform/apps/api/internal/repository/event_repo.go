@@ -86,6 +86,49 @@ func (r *EventRepository) Create(ctx context.Context, tenantID, createdBy string
 	return &e, nil
 }
 
+func (r *EventRepository) Update(ctx context.Context, tenantID, id string, req model.UpdateEventRequest) (*model.Event, error) {
+	var startAt, endAt *time.Time
+	if req.StartAt != nil {
+		t, err := time.Parse(time.RFC3339, *req.StartAt)
+		if err == nil {
+			startAt = &t
+		}
+	}
+	if req.EndAt != nil {
+		t, err := time.Parse(time.RFC3339, *req.EndAt)
+		if err == nil {
+			endAt = &t
+		}
+	}
+	var e model.Event
+	err := r.db.GetContext(ctx, &e,
+		`UPDATE events SET
+		   title               = COALESCE(NULLIF($1,''), title),
+		   description         = COALESCE(NULLIF($2,''), description),
+		   start_at            = COALESCE($3, start_at),
+		   end_at              = COALESCE($4, end_at),
+		   timezone            = COALESCE(NULLIF($5,''), timezone),
+		   cover_url           = COALESCE(NULLIF($6,''), cover_url),
+		   capacity            = COALESCE($7, capacity),
+		   viewer_capacity     = COALESCE($8, viewer_capacity),
+		   is_public           = COALESCE($9, is_public),
+		   registration_required = COALESCE($10, registration_required),
+		   updated_at          = NOW()
+		 WHERE id = $11 AND tenant_id = $12
+		 RETURNING *`,
+		req.Title, req.Description, startAt, endAt, req.Timezone, req.CoverURL,
+		req.Capacity, req.ViewerCapacity, req.IsPublic, req.RegistrationRequired,
+		id, tenantID,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("event Update: %w", err)
+	}
+	return &e, nil
+}
+
 func (r *EventRepository) UpdateStatus(ctx context.Context, tenantID, id, status string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE events SET status = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3`,

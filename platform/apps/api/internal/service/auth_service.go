@@ -105,7 +105,7 @@ func (s *AuthService) Login(ctx context.Context, req model.LoginRequest, ip stri
 		return "", nil, fmt.Errorf("выпуск токена: %w", err)
 	}
 
-	_ = s.userRepo.SetLastLogin(ctx, user.ID)
+	_ = s.userRepo.SetLastLogin(ctx, tenant.ID, user.ID)
 	return token, user, nil
 }
 
@@ -143,10 +143,21 @@ func (s *AuthService) issueToken(userID, tenantID, email, role string) (string, 
 	return t.SignedString(s.jwtSecret)
 }
 
-func (s *AuthService) Me(ctx context.Context, userID string) (*model.User, error) {
-	user, err := s.userRepo.FindByID(ctx, userID)
+func (s *AuthService) Me(ctx context.Context, tenantID, userID string) (*model.User, error) {
+	user, err := s.userRepo.FindByID(ctx, tenantID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("поиск пользователя: %w", err)
+	}
+	if user == nil {
+		return nil, fmt.Errorf("пользователь не найден")
+	}
+	return user, nil
+}
+
+func (s *AuthService) UpdateProfile(ctx context.Context, tenantID, userID, firstName, lastName, avatarURL string) (*model.User, error) {
+	user, err := s.userRepo.UpdateProfile(ctx, tenantID, userID, firstName, lastName, avatarURL)
+	if err != nil {
+		return nil, fmt.Errorf("обновление профиля: %w", err)
 	}
 	if user == nil {
 		return nil, fmt.Errorf("пользователь не найден")

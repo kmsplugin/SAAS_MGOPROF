@@ -29,9 +29,10 @@ func (r *UserRepository) FindByEmail(ctx context.Context, tenantID, email string
 	return &u, nil
 }
 
-func (r *UserRepository) FindByID(ctx context.Context, id string) (*model.User, error) {
+func (r *UserRepository) FindByID(ctx context.Context, tenantID, id string) (*model.User, error) {
 	var u model.User
-	err := r.db.GetContext(ctx, &u, `SELECT * FROM users WHERE id = $1 LIMIT 1`, id)
+	err := r.db.GetContext(ctx, &u,
+		`SELECT * FROM users WHERE id = $1 AND tenant_id = $2 LIMIT 1`, id, tenantID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -54,12 +55,28 @@ func (r *UserRepository) Create(ctx context.Context, tenantID, email, firstName,
 	return &u, nil
 }
 
-func (r *UserRepository) SetLastLogin(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE users SET last_login_at = NOW() WHERE id = $1`, id)
+func (r *UserRepository) SetLastLogin(ctx context.Context, tenantID, id string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE users SET last_login_at = NOW() WHERE id = $1 AND tenant_id = $2`, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("user SetLastLogin: %w", err)
 	}
 	return nil
+}
+
+func (r *UserRepository) UpdateProfile(ctx context.Context, tenantID, id, firstName, lastName, avatarURL string) (*model.User, error) {
+	var u model.User
+	err := r.db.GetContext(ctx, &u,
+		`UPDATE users SET first_name = $1, last_name = $2, avatar_url = $3
+		 WHERE id = $4 AND tenant_id = $5 RETURNING *`,
+		firstName, lastName, avatarURL, id, tenantID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("user UpdateProfile: %w", err)
+	}
+	return &u, nil
 }
 
 func (r *UserRepository) ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]model.User, error) {

@@ -43,22 +43,24 @@ func main() {
 	eventRepo := repository.NewEventRepository(db)
 	roomRepo := repository.NewRoomRepository(db)
 	regRepo := repository.NewRegistrationRepository(db)
+	questionRepo := repository.NewQuestionRepository(db)
+	msgRepo := repository.NewQuestionMessageRepository(db)
 
 	// ── Services ──────────────────────────────────────────────────────────────
 	authSvc := service.NewAuthService(userRepo, tenantRepo, logger, cfg.JWTSecret)
-
 	eventSvc := service.NewEventService(eventRepo, regRepo, logger)
-
 	roomSvc := service.NewRoomService(
 		roomRepo, eventRepo, regRepo,
 		cfg.MediaServiceURL, cfg.MediaServiceToken, cfg.LiveKitURL,
 		logger,
 	)
+	questionSvc := service.NewQuestionService(questionRepo, msgRepo, eventRepo, logger)
 
 	// ── Handlers ──────────────────────────────────────────────────────────────
 	authHandler := handler.NewAuthHandler(authSvc, logger)
 	eventHandler := handler.NewEventHandler(eventSvc, logger)
 	roomHandler := handler.NewRoomHandler(roomSvc, logger)
+	questionHandler := handler.NewQuestionHandler(questionSvc, logger)
 
 	// ── Router ────────────────────────────────────────────────────────────────
 	if os.Getenv("GIN_MODE") == "" {
@@ -76,10 +78,21 @@ func main() {
 
 	authMW := middleware.Auth(authSvc.ParseTokenFunc())
 
+	// Rate limiters
+	loginLimiter    := middleware.NewRateLimiter(5, time.Minute)   // 5 req/min per IP
+	registerLimiter := middleware.NewRateLimiter(3, time.Minute)   // 3 req/min per IP
+
 	v1 := r.Group("/api/v1")
-	authHandler.RegisterRoutes(v1, authMW)
+
+	// Auth routes with rate limiting applied directly
+	v1.POST("/auth/register", registerLimiter.Limit(), authHandler.Register)
+	v1.POST("/auth/login", loginLimiter.Limit(), authHandler.Login)
+	v1.GET("/auth/me", authMW, authHandler.Me)
+	v1.PATCH("/auth/profile", authMW, authHandler.UpdateProfile)
+
 	eventHandler.RegisterRoutes(v1, authMW)
 	roomHandler.RegisterRoutes(v1, authMW)
+	questionHandler.RegisterRoutes(v1, authMW)
 
 	// ── Server ────────────────────────────────────────────────────────────────
 	srv := &http.Server{

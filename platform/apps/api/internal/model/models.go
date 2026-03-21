@@ -149,3 +149,58 @@ type RegisterEventRequest struct {
 	EventID      string `json:"event_id"      binding:"required"`
 	ConsentGiven bool   `json:"consent_given" binding:"required"`
 }
+
+type UpdateProfileRequest struct {
+	FirstName string `json:"first_name" binding:"required"`
+	LastName  string `json:"last_name"  binding:"required"`
+	AvatarURL string `json:"avatar_url"`
+}
+
+type UpdateEventRequest struct {
+	Title                string  `json:"title"`
+	Description          string  `json:"description"`
+	StartAt              *string `json:"start_at"`
+	EndAt                *string `json:"end_at"`
+	Timezone             string  `json:"timezone"`
+	CoverURL             string  `json:"cover_url"`
+	Capacity             *int    `json:"capacity"`
+	ViewerCapacity       *int    `json:"viewer_capacity"`
+	IsPublic             *bool   `json:"is_public"`
+	RegistrationRequired *bool   `json:"registration_required"`
+}
+
+// ── Q&A ───────────────────────────────────────────────────────────────────────
+
+type Question struct {
+	ID          string     `db:"id"             json:"id"`
+	EventID     string     `db:"event_id"       json:"event_id"`
+	UserID      string     `db:"user_id"        json:"user_id"`
+	TenantID    string     `db:"tenant_id"      json:"tenant_id"`
+	Subject     string     `db:"subject"        json:"subject"`
+	Status      string     `db:"status"         json:"status"`
+	IsPublic    bool       `db:"is_public"      json:"is_public"`
+	Priority    int        `db:"priority"       json:"priority"`
+	AssignedTo  *string    `db:"assigned_to"    json:"assigned_to,omitempty"`
+	CreatedAt   time.Time  `db:"created_at"     json:"created_at"`
+	UpdatedAt   *time.Time `db:"updated_at"     json:"updated_at,omitempty"`
+	ClosedAt    *time.Time `db:"closed_at"      json:"closed_at,omitempty"`
+}
+
+type QuestionMessage struct {
+	ID         string    `db:"id"          json:"id"`
+	QuestionID string    `db:"question_id" json:"question_id"`
+	SenderID   string    `db:"sender_id"   json:"sender_id"`
+	SenderRole string    `db:"sender_role" json:"sender_role"`
+	Body       string    `db:"body"        json:"body"`
+	IsRead     bool      `db:"is_read"     json:"is_read"`
+	CreatedAt  time.Time `db:"created_at"  json:"created_at"`
+}
+
+type CreateQuestionRequest struct {
+	Subject  string `json:"subject"   binding:"required,min=5,max=500"`
+	IsPublic bool   `json:"is_public"`
+}
+
+type CreateMessageRequest struct {
+	Body string `json:"body" binding:"required,min=1,max=5000"`
+}

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -11,6 +12,71 @@ import (
 
 	"platform/api/internal/model"
 )
+
+// RateLimiter is a simple sliding-window IP-based rate limiter.
+type RateLimiter struct {
+	mu      sync.Mutex
+	buckets map[string][]time.Time
+	limit   int
+	window  time.Duration
+}
+
+func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
+	rl := &RateLimiter{
+		buckets: make(map[string][]time.Time),
+		limit:   limit,
+		window:  window,
+	}
+	// Periodic cleanup every 5 minutes to avoid unbounded memory growth.
+	go func() {
+		for range time.Tick(5 * time.Minute) {
+			rl.mu.Lock()
+			cutoff := time.Now().Add(-rl.window)
+			for ip, ts := range rl.buckets {
+				start := 0
+				for start < len(ts) && ts[start].Before(cutoff) {
+					start++
+				}
+				if start == len(ts) {
+					delete(rl.buckets, ip)
+				} else {
+					rl.buckets[ip] = ts[start:]
+				}
+			}
+			rl.mu.Unlock()
+		}
+	}()
+	return rl
+}
+
+func (rl *RateLimiter) Limit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ip := ExtractIP(c)
+		now := time.Now()
+		cutoff := now.Add(-rl.window)
+
+		rl.mu.Lock()
+		ts := rl.buckets[ip]
+		// Drop timestamps outside the window.
+		start := 0
+		for start < len(ts) && ts[start].Before(cutoff) {
+			start++
+		}
+		ts = ts[start:]
+		if len(ts) >= rl.limit {
+			rl.mu.Unlock()
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, model.ErrorResponse{
+				Status:  "error",
+				Code:    "RATE_LIMIT_EXCEEDED",
+				Message: "слишком много запросов, попробуйте позже",
+			})
+			return
+		}
+		rl.buckets[ip] = append(ts, now)
+		rl.mu.Unlock()
+		c.Next()
+	}
+}
 
 // Auth validates a Bearer JWT and sets tenant_id, user_id, role into context.
 func Auth(parseToken func(string) (string, string, string, string, error)) gin.HandlerFunc {

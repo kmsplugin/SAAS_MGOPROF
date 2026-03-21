@@ -32,6 +32,7 @@ func (h *EventHandler) RegisterRoutes(r *gin.RouterGroup, authMW gin.HandlerFunc
 	// Admin/owner — event management
 	admin := r.Group("/events", authMW, middleware.RequireRole("event_admin", "tenant_owner", "super_admin"))
 	admin.POST("", h.Create)
+	admin.PUT("/:id", h.Update)
 	admin.POST("/:id/publish", h.Publish)
 }
 
@@ -79,6 +80,21 @@ func (h *EventHandler) Create(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"status": "success", "event": event})
+}
+
+func (h *EventHandler) Update(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	var req model.UpdateEventRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Status: "error", Message: err.Error()})
+		return
+	}
+	event, err := h.eventSvc.Update(c.Request.Context(), tenantID, c.Param("id"), req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Status: "error", Message: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"event": event})
 }
 
 func (h *EventHandler) Publish(c *gin.Context) {

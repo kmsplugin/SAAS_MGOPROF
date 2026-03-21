@@ -52,6 +52,17 @@ func (s *EventService) Create(ctx context.Context, tenantID, userID string, req 
 	return event, nil
 }
 
+func (s *EventService) Update(ctx context.Context, tenantID, id string, req model.UpdateEventRequest) (*model.Event, error) {
+	event, err := s.eventRepo.Update(ctx, tenantID, id, req)
+	if err != nil {
+		return nil, fmt.Errorf("обновление мероприятия: %w", err)
+	}
+	if event == nil {
+		return nil, fmt.Errorf("мероприятие не найдено")
+	}
+	return event, nil
+}
+
 func (s *EventService) Publish(ctx context.Context, tenantID, id string) error {
 	if err := s.eventRepo.UpdateStatus(ctx, tenantID, id, "published"); err != nil {
 		return fmt.Errorf("публикация: %w", err)

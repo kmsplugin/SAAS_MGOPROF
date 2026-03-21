@@ -22,6 +22,7 @@ type pendingAdmin struct {
 	email     string
 	adminID   int
 	name      string
+	role      string
 	otpHash   string
 	expiresAt time.Time
 }
@@ -72,6 +73,7 @@ func (s *AdminService) Login(ctx context.Context, req model.AdminLoginRequest, i
 
 	var adminID int
 	var adminName string
+	var adminRole string
 
 	// 1. Check admin_users table first (multi-admin support).
 	if s.adminRepo != nil {
@@ -87,6 +89,7 @@ func (s *AdminService) Login(ctx context.Context, req model.AdminLoginRequest, i
 			}
 			adminID = admin.ID
 			adminName = admin.Name
+			adminRole = admin.Role
 		}
 	}
 
@@ -104,6 +107,7 @@ func (s *AdminService) Login(ctx context.Context, req model.AdminLoginRequest, i
 			return fmt.Errorf("неверный логин или пароль")
 		}
 		adminName = s.adminName
+		adminRole = "super_admin"
 	}
 
 	otp := generateOTP()
@@ -116,14 +120,24 @@ func (s *AdminService) Login(ctx context.Context, req model.AdminLoginRequest, i
 		email:     email,
 		adminID:   adminID,
 		name:      adminName,
+		role:      adminRole,
 		otpHash:   hash,
 		expiresAt: time.Now().Add(adminOTPTTL),
 	}
 
 	if err := s.mailer.SendAdminOTP(email, adminName, otp); err != nil {
 		s.logger.Error("admin OTP email failed", zap.String("email", email), zap.Error(err))
-		delete(s.pending, email)
-		return fmt.Errorf("не удалось отправить OTP. Попробуйте позже.")
+		// Dev fallback: when SMTP is unavailable, log OTP to console so dev can proceed.
+		// In production SMTP_PASSWORD must be set — this path should never be hit.
+		if s.mailer.IsDevMode() {
+			s.logger.Warn("DEV MODE — OTP not sent via email, use code below",
+				zap.String("email", email),
+				zap.String("otp", otp),
+			)
+		} else {
+			delete(s.pending, email)
+			return fmt.Errorf("не удалось отправить OTP. Попробуйте позже.")
+		}
 	}
 
 	_ = s.logRepo.Write(ctx, "admin_otp_sent", email, ip, "admin OTP issued", userAgent)
@@ -149,8 +163,8 @@ func (s *AdminService) VerifyOTP(ctx context.Context, req model.AdminVerifyOTPRe
 
 	delete(s.pending, email)
 
-	// Issue token with real admin ID (0 only for env-var fallback admin).
-	token, err := s.authSvc.issueToken(p.adminID, email, "admin")
+	// Issue token with real admin ID and DB role (0 only for env-var fallback admin).
+	token, err := s.authSvc.issueToken(p.adminID, email, p.role)
 	if err != nil {
 		return "", fmt.Errorf("выпуск токена: %w", err)
 	}

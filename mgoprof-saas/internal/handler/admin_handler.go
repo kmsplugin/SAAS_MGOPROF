@@ -35,7 +35,7 @@ func NewAdminHandler(
 // RegisterProtectedRoutes registers all JWT-protected admin endpoints.
 // Public login routes are registered separately in main.go to allow rate limiting.
 func (h *AdminHandler) RegisterProtectedRoutes(r *gin.RouterGroup, auth gin.HandlerFunc) {
-	admin := r.Group("/admin", auth, middleware.RequireRole("admin"))
+	admin := r.Group("/admin", auth, middleware.RequireRole("admin", "super_admin"))
 	{
 		admin.GET("/stats", h.Stats)
 		admin.GET("/registrations", h.Registrations)

@@ -82,6 +82,12 @@ func NewWithPool(cfg Config, workers, bufferSize int) *Mailer {
 	return m
 }
 
+// IsDevMode returns true when SMTP password is not configured.
+// In dev mode the caller may choose to log OTP instead of returning an error.
+func (m *Mailer) IsDevMode() bool {
+	return m.cfg.Password == ""
+}
+
 // Close drains remaining jobs and waits for all workers to finish.
 // Call this during graceful shutdown.
 func (m *Mailer) Close() {

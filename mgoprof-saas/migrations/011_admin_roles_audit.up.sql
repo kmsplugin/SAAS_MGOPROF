@@ -109,8 +109,9 @@ WHERE key IN (
 
 -- Immutable admin action audit log
 -- IMPORTANT: no UPDATE/DELETE should ever be run on this table.
+-- NOTE: PRIMARY KEY must include partition key (created_at) per PostgreSQL requirement.
 CREATE TABLE IF NOT EXISTS admin_action_logs (
-    id            BIGSERIAL    PRIMARY KEY,
+    id            BIGSERIAL    NOT NULL,
     admin_id      INT          REFERENCES admin_users(id) ON DELETE SET NULL,
     admin_email   VARCHAR(255),                       -- snapshot, never changes
     action        VARCHAR(100) NOT NULL,              -- 'user.edit', 'reg.status_change'
@@ -120,13 +121,14 @@ CREATE TABLE IF NOT EXISTS admin_action_logs (
     new_value     JSONB,
     ip            VARCHAR(64),
     user_agent    TEXT,
-    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (id, created_at)
 ) PARTITION BY RANGE (created_at);
 
--- Monthly partitions for the current year (extend annually)
-CREATE TABLE IF NOT EXISTS admin_action_logs_2026_01
+-- Quarterly partitions for 2026 (no gaps)
+CREATE TABLE IF NOT EXISTS admin_action_logs_2026_q1
     PARTITION OF admin_action_logs
-    FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
+    FOR VALUES FROM ('2026-01-01') TO ('2026-04-01');
 CREATE TABLE IF NOT EXISTS admin_action_logs_2026_q2
     PARTITION OF admin_action_logs
     FOR VALUES FROM ('2026-04-01') TO ('2026-07-01');
@@ -136,6 +138,9 @@ CREATE TABLE IF NOT EXISTS admin_action_logs_2026_q3
 CREATE TABLE IF NOT EXISTS admin_action_logs_2026_q4
     PARTITION OF admin_action_logs
     FOR VALUES FROM ('2026-10-01') TO ('2027-01-01');
+CREATE TABLE IF NOT EXISTS admin_action_logs_2027_q1
+    PARTITION OF admin_action_logs
+    FOR VALUES FROM ('2027-01-01') TO ('2027-04-01');
 
 CREATE INDEX IF NOT EXISTS idx_admin_action_logs_admin
     ON admin_action_logs(admin_id, created_at DESC);

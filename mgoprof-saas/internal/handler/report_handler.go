@@ -25,6 +25,41 @@ type ReportHandler struct {
 	tmpl   *template.Template
 }
 
+var badgeTemplate = template.Must(template.New("badges").Funcs(template.FuncMap{
+	"fullName": func(b model.BadgeData) string {
+		name := b.LastName
+		if b.FirstName != "" {
+			name += " " + b.FirstName
+		}
+		if b.Patronymic != "" {
+			name += " " + b.Patronymic
+		}
+		return name
+	},
+	"shortName": func(b model.BadgeData) string {
+		name := b.LastName
+		if b.FirstName != "" {
+			name += " " + string([]rune(b.FirstName)[:1]) + "."
+		}
+		if b.Patronymic != "" {
+			name += " " + string([]rune(b.Patronymic)[:1]) + "."
+		}
+		return name
+	},
+	"initials": func(b model.BadgeData) string {
+		var init string
+		if len([]rune(b.LastName)) > 0 {
+			init += string([]rune(b.LastName)[:1])
+		}
+		if len([]rune(b.FirstName)) > 0 {
+			init += string([]rune(b.FirstName)[:1])
+		}
+		return init
+	},
+	"checkedIn": func(b model.BadgeData) bool { return b.CheckedInAt != nil },
+	"add":       func(a, b int) int { return a + b },
+}).Parse(badgeHTMLTemplate))
+
 func NewReportHandler(svc *service.ReportService, logger *zap.Logger) *ReportHandler {
 	tmpl := template.Must(template.New("report").Funcs(template.FuncMap{
 		"pct": func(part, total int) string {
@@ -49,6 +84,11 @@ func (h *ReportHandler) RegisterRoutes(r *gin.RouterGroup, auth gin.HandlerFunc)
 	grp.GET("/report", h.HTMLReport)
 	grp.GET("/report.json", h.JSONReport)
 	grp.GET("/export", h.CSVExport)
+	grp.GET("/export.xls", h.XLSExport)
+	grp.GET("/badges", h.BadgesPage)
+
+	// Multi-event aggregate
+	r.GET("/admin/analytics", auth, middleware.RequireRole("admin"), h.MultiEventAnalytics)
 }
 
 // HTMLReport renders the beautiful HTML report page.
@@ -138,6 +178,158 @@ func (h *ReportHandler) CSVExport(c *gin.Context) {
 		})
 	}
 	w.Flush()
+}
+
+// XLSExport streams an Excel 2003 SpreadsheetML file (no extra dependencies needed).
+// Supports optional ?from=YYYY-MM-DD&to=YYYY-MM-DD date range filters.
+func (h *ReportHandler) XLSExport(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id < 1 {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Status: "error", Message: "Неверный ID."})
+		return
+	}
+	from := c.Query("from")
+	to := c.Query("to")
+
+	event, rows, err := h.svc.GetEventExportFiltered(c.Request.Context(), id, from, to)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Status: "error", Message: err.Error()})
+		return
+	}
+
+	slug := sanitizeFilename(event.Title)
+	filename := fmt.Sprintf("reg_%s_%s.xls", slug, time.Now().Format("2006-01-02"))
+	c.Header("Content-Type", "application/vnd.ms-excel; charset=UTF-8")
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+
+	w := c.Writer
+	w.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+	w.WriteString(`<?mso-application progid="Excel.Sheet"?>` + "\n")
+	w.WriteString(`<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"` + "\n")
+	w.WriteString(` xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"` + "\n")
+	w.WriteString(` xmlns:x="urn:schemas-microsoft-com:office:excel">` + "\n")
+	w.WriteString("<Styles>\n")
+	w.WriteString(`  <Style ss:ID="H"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1e293b" ss:Pattern="Solid"/></Style>` + "\n")
+	w.WriteString(`  <Style ss:ID="V"><Interior ss:Color="#f0fdf4" ss:Pattern="Solid"/></Style>` + "\n")
+	w.WriteString(`  <Style ss:ID="P"><Interior ss:Color="#fff7ed" ss:Pattern="Solid"/></Style>` + "\n")
+	w.WriteString("</Styles>\n")
+	w.WriteString(`<Worksheet ss:Name="Регистрации">` + "\n<Table>\n")
+
+	// Header row
+	headers := []string{
+		"№", "Статус", "Дата регистрации",
+		"Фамилия", "Имя", "Отчество",
+		"Организация", "Округ/Регион", "Email",
+		"Член профсоюза", "Номер билета", "Примечание",
+		"IP", "Страна", "Регион", "Город",
+		"Провайдер", "ASN",
+		"Устройство", "ОС", "Браузер",
+	}
+	w.WriteString(`<Row ss:StyleID="H">`)
+	for _, h := range headers {
+		w.WriteString(`<Cell><Data ss:Type="String">` + xmlEscape(h) + `</Data></Cell>`)
+	}
+	w.WriteString("</Row>\n")
+
+	for i, r := range rows {
+		unionMember := "Нет"
+		if r.IsUnionMember {
+			unionMember = "Да"
+		}
+		statusRu := "Ожидает OTP"
+		styleID := "P"
+		if r.Status == "verified" {
+			statusRu = "Подтверждено"
+			styleID = "V"
+		}
+		w.WriteString(fmt.Sprintf(`<Row ss:StyleID="%s">`, styleID))
+		cells := []string{
+			strconv.Itoa(i + 1),
+			statusRu,
+			r.RegDatetime.Format("02.01.2006 15:04"),
+			r.LastName, r.FirstName, r.Patronymic,
+			r.Organization, r.District, r.Email,
+			unionMember, r.UnionTicket, r.ExtraInfo,
+			r.IPAddress, r.GeoCountry, r.GeoRegion, r.GeoCity,
+			r.ISPName, r.ISPASN,
+			r.DeviceType, r.OSName, r.BrowserName,
+		}
+		for _, cell := range cells {
+			w.WriteString(`<Cell><Data ss:Type="String">` + xmlEscape(cell) + `</Data></Cell>`)
+		}
+		w.WriteString("</Row>\n")
+	}
+
+	w.WriteString("</Table>\n</Worksheet>\n</Workbook>\n")
+}
+
+// BadgesPage renders an HTML page with all verified participant badges ready to print.
+// Each badge is A6 horizontal (148×105mm), 2 per A4 row.
+// Supports ?accent=#color for custom brand color.
+func (h *ReportHandler) BadgesPage(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id < 1 {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Status: "error", Message: "Неверный ID."})
+		return
+	}
+
+	event, badges, err := h.svc.GetEventBadges(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Status: "error", Message: err.Error()})
+		return
+	}
+
+	accent := c.DefaultQuery("accent", "#009b35")
+	siteURL := c.DefaultQuery("site", "")
+
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	type badgesData struct {
+		Event   *model.Event
+		Badges  []model.BadgeData
+		Accent  string
+		SiteURL string
+		Total   int
+	}
+	if err := badgeTemplate.Execute(c.Writer, badgesData{
+		Event:   event,
+		Badges:  badges,
+		Accent:  accent,
+		SiteURL: siteURL,
+		Total:   len(badges),
+	}); err != nil {
+		h.logger.Error("badges template execute", zap.Error(err))
+	}
+}
+
+// MultiEventAnalytics returns aggregate stats across all active events as JSON.
+func (h *ReportHandler) MultiEventAnalytics(c *gin.Context) {
+	stats, err := h.svc.GetMultiEventStats(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Status: "error", Message: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"events": stats, "generated_at": time.Now()})
+}
+
+func xmlEscape(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '&':
+			b.WriteString("&amp;")
+		case '<':
+			b.WriteString("&lt;")
+		case '>':
+			b.WriteString("&gt;")
+		case '"':
+			b.WriteString("&quot;")
+		case '\'':
+			b.WriteString("&apos;")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func sanitizeFilename(s string) string {
@@ -302,8 +494,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       {{if .Event.EventDate}}<span class="header-badge">Мероприятие: {{.Event.EventDate}}</span>{{end}}
     </div>
     <div class="header-actions">
-      <a class="btn btn-primary" href="export">⬇ Скачать CSV</a>
-      <button class="btn btn-ghost" onclick="window.print()">🖨 Печать</button>
+      <a class="btn btn-primary" href="export">⬇ CSV</a>
+      <a class="btn btn-primary" href="export.xls">📊 Excel</a>
+      <a class="btn btn-ghost" href="badges" target="_blank">🏷 Бейджи</a>
+      <button class="btn btn-ghost" onclick="window.print()">🖨 PDF / Печать</button>
+      <a class="btn btn-ghost" href="report.json">{ JSON }</a>
       <a class="btn btn-ghost" href="/api/admin/events">← К мероприятиям</a>
     </div>
   </div>
@@ -618,6 +813,209 @@ if(tl && tl.length > 0){
   var c = document.getElementById('chartTimeline');
   c.parentElement.innerHTML = '<div style="height:220px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:14px">Нет данных по временно́й динамике</div>';
 }
+
+})();
+</script>
+</body>
+</html>`
+
+// ─── Badge HTML template ──────────────────────────────────────────────────────
+
+const badgeHTMLTemplate = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Бейджи: {{.Event.Title}}</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+:root { --accent: {{.Accent}}; --accent-light: {{.Accent}}22; }
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#e5e7eb;padding:20px}
+
+/* ── Control bar (hidden on print) ── */
+.controls{background:#1e293b;color:#fff;border-radius:12px;padding:16px 20px;
+  margin-bottom:20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.controls h1{font-size:15px;font-weight:700;flex:1}
+.ctrl-stat{font-size:13px;color:#94a3b8}
+.btn{padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;
+  cursor:pointer;border:none;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-ghost{background:rgba(255,255,255,.12);color:#fff}
+.color-pick{display:flex;align-items:center;gap:8px;font-size:13px}
+.color-pick input{width:36px;height:36px;border:none;border-radius:6px;cursor:pointer;background:none}
+
+/* ── Badge grid ── */
+.badge-grid{display:flex;flex-wrap:wrap;gap:0;justify-content:flex-start}
+
+/* ── Single badge: A6 landscape 148x105mm ── */
+.badge{
+  width:148mm;height:105mm;
+  background:#fff;
+  border:1px solid #d1d5db;
+  border-radius:8px;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  margin:4mm;
+  position:relative;
+  page-break-inside:avoid;
+  break-inside:avoid;
+}
+.badge-header{
+  background:var(--accent);
+  color:#fff;
+  padding:8px 14px;
+  font-size:10px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.5px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-shrink:0;
+}
+.badge-header .event-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge-header .badge-id{font-family:monospace;font-size:9px;opacity:.8;white-space:nowrap;margin-left:8px}
+
+.badge-body{
+  flex:1;
+  display:flex;
+  padding:10px 12px 8px;
+  gap:10px;
+  overflow:hidden;
+}
+.badge-left{flex:1;display:flex;flex-direction:column;justify-content:space-between;min-width:0}
+.badge-right{display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0}
+
+.badge-initials{
+  width:44px;height:44px;border-radius:50%;
+  background:var(--accent-light);
+  border:2px solid var(--accent);
+  display:flex;align-items:center;justify-content:center;
+  font-size:16px;font-weight:800;color:var(--accent);
+  flex-shrink:0;
+}
+.badge-name{
+  font-size:16px;font-weight:800;color:#1e293b;
+  line-height:1.15;word-break:break-word;
+  margin-top:6px;
+}
+.badge-org{
+  font-size:10px;color:#64748b;margin-top:4px;
+  overflow:hidden;display:-webkit-box;
+  -webkit-line-clamp:2;-webkit-box-orient:vertical;
+}
+.badge-district{
+  font-size:10px;font-weight:600;color:var(--accent);
+  background:var(--accent-light);
+  border-radius:4px;padding:2px 6px;
+  display:inline-block;margin-top:4px;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.badge-union{
+  font-size:9px;font-weight:700;color:#fff;
+  background:#009b35;border-radius:4px;padding:2px 6px;
+  margin-top:4px;display:inline-block;
+}
+.badge-checked{
+  font-size:9px;font-weight:700;color:#fff;
+  background:#3b82f6;border-radius:4px;padding:2px 6px;
+  margin-top:2px;display:inline-block;
+}
+.qr-wrap{
+  width:72px;height:72px;
+  border:1px solid #e2e8f0;border-radius:6px;
+  overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+  background:#fff;
+  flex-shrink:0;
+}
+.qr-wrap canvas,.qr-wrap img{width:100%!important;height:100%!important}
+.badge-token{font-family:monospace;font-size:7px;color:#94a3b8;text-align:center;line-height:1.4;word-break:break-all}
+
+/* ── Print ── */
+@media print{
+  body{background:#fff;padding:0}
+  .controls{display:none!important}
+  .badge{margin:3mm;border:1px solid #ccc;border-radius:4px;box-shadow:none}
+  .badge-header{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+  .badge-district,.badge-union,.badge-checked{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+  @page{size:A4 portrait;margin:8mm}
+}
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <h1>🏷 Бейджи: {{.Event.Title}}</h1>
+  <span class="ctrl-stat">{{.Total}} участников</span>
+  <div class="color-pick">
+    <span>Цвет:</span>
+    <input type="color" id="accentPicker" value="{{.Accent}}" oninput="changeAccent(this.value)">
+  </div>
+  <button class="btn btn-primary" onclick="window.print()">🖨 Печать / PDF</button>
+  <a class="btn btn-ghost" href="report">← К отчёту</a>
+</div>
+
+<div class="badge-grid" id="badgeGrid">
+{{range $i, $b := .Badges}}
+<div class="badge">
+  <div class="badge-header">
+    <span class="event-name">{{$.Event.Title}}</span>
+    <span class="badge-id">#{{$b.RegistrationID}}</span>
+  </div>
+  <div class="badge-body">
+    <div class="badge-left">
+      <div>
+        <div class="badge-name">{{fullName $b}}</div>
+        <div class="badge-org">{{$b.Organization}}</div>
+        <div class="badge-district">{{$b.District}}</div>
+        {{if $b.IsUnionMember}}<div class="badge-union">✓ Член профсоюза</div>{{end}}
+        {{if checkedIn $b}}<div class="badge-checked">✓ Отмечен на входе</div>{{end}}
+      </div>
+      <div style="font-size:9px;color:#94a3b8;margin-top:4px">{{$b.Email}}</div>
+    </div>
+    <div class="badge-right">
+      <div class="badge-initials">{{initials $b}}</div>
+      <div class="qr-wrap" id="qr-{{$b.RegistrationID}}"></div>
+      {{if $b.ParticipantToken}}
+      <div class="badge-token">{{$b.ParticipantToken}}</div>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}
+</div>
+
+<script>
+(function(){
+'use strict';
+
+var siteURL = {{.SiteURL | printf "%q"}};
+var badges = [
+{{range .Badges}}
+  {id:{{.RegistrationID}}, token:{{if .ParticipantToken}}"{{.ParticipantToken}}"{{else}}""{{end}}},
+{{end}}
+];
+
+badges.forEach(function(b){
+  if(!b.token) return;
+  var url = siteURL ? siteURL+'/api/admin/checkin?token='+b.token : b.token;
+  var el = document.getElementById('qr-'+b.id);
+  if(!el) return;
+  new QRCode(el, {
+    text: url,
+    width: 72, height: 72,
+    colorDark: '#1e293b',
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.M
+  });
+});
+
+window.changeAccent = function(color){
+  document.documentElement.style.setProperty('--accent', color);
+  document.documentElement.style.setProperty('--accent-light', color+'22');
+};
 
 })();
 </script>

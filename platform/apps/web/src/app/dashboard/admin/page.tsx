@@ -52,6 +52,7 @@ export default function AdminPage() {
           <nav className="flex items-center gap-6 text-sm text-gray-400">
             <Link href="/events" className="hover:text-white">Мероприятия</Link>
             <Link href="/dashboard" className="hover:text-white">Дашборд</Link>
+            <Link href="/dashboard/analytics" className="hover:text-white">Аналитика</Link>
             <Link href="/dashboard/admin" className="text-white font-medium">Админ</Link>
           </nav>
         </div>

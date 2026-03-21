@@ -252,6 +252,32 @@ type DeviceStat struct {
 	Total int    `db:"total" json:"total"`
 }
 
+// BadgeData contains everything needed to render one participant badge.
+type BadgeData struct {
+	RegistrationID   int        `db:"registration_id"   json:"registration_id"`
+	ParticipantToken string     `db:"participant_token" json:"participant_token"`
+	LastName         string     `db:"last_name"         json:"last_name"`
+	FirstName        string     `db:"first_name"        json:"first_name"`
+	Patronymic       string     `db:"patronymic"        json:"patronymic"`
+	Organization     string     `db:"organization"      json:"organization"`
+	District         string     `db:"district"          json:"district"`
+	IsUnionMember    bool       `db:"is_union_member"   json:"is_union_member"`
+	Email            string     `db:"email"             json:"email"`
+	CheckedInAt      *time.Time `db:"checked_in_at"     json:"checked_in_at,omitempty"`
+}
+
+// MultiEventStats holds aggregate stats across multiple events.
+type MultiEventStats struct {
+	EventID      int    `db:"event_id"      json:"event_id"`
+	EventTitle   string `db:"event_title"   json:"event_title"`
+	EventDate    string `db:"event_date"    json:"event_date"`
+	IsOnline     bool   `db:"is_online"     json:"is_online"`
+	TotalRegs    int    `db:"total_regs"    json:"total_regs"`
+	VerifiedRegs int    `db:"verified_regs" json:"verified_regs"`
+	UnionMembers int    `db:"union_members" json:"union_members"`
+	CheckedIn    int    `db:"checked_in"    json:"checked_in"`
+}
+
 // --- Request / Response DTOs ---
 
 type AnswerInput struct {

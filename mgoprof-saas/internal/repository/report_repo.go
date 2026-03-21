@@ -177,3 +177,76 @@ func (r *ReportRepository) GetAllEventsExport(ctx context.Context) ([]model.Regi
 	return rows, nil
 }
 
+// GetEventRegistrationsFiltered returns registrations for one event within an optional date range.
+func (r *ReportRepository) GetEventRegistrationsFiltered(
+	ctx context.Context, eventID int, from, to string,
+) ([]model.RegistrationRow, error) {
+	query := exportSelectSQL + ` WHERE r.event_id = $1`
+	args := []interface{}{eventID}
+	if from != "" {
+		args = append(args, from)
+		query += fmt.Sprintf(` AND r.created_at >= $%d::date`, len(args))
+	}
+	if to != "" {
+		args = append(args, to)
+		query += fmt.Sprintf(` AND r.created_at < ($%d::date + interval '1 day')`, len(args))
+	}
+	query += ` ORDER BY r.status DESC, u.last_name, u.first_name`
+	var rows []model.RegistrationRow
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("export filtered: %w", err)
+	}
+	return rows, nil
+}
+
+// GetBadgesForEvent returns all verified participants with their ticket tokens for badge printing.
+func (r *ReportRepository) GetBadgesForEvent(ctx context.Context, eventID int) ([]model.BadgeData, error) {
+	var rows []model.BadgeData
+	err := r.db.SelectContext(ctx, &rows, `
+		SELECT
+			r.id                                          AS registration_id,
+			COALESCE(r.participant_token, '')             AS participant_token,
+			u.last_name,
+			u.first_name,
+			u.patronymic,
+			COALESCE(NULLIF(u.organization,''), '—')      AS organization,
+			COALESCE(NULLIF(u.district,''), '—')          AS district,
+			u.is_union_member,
+			u.email,
+			r.checked_in_at
+		FROM reg_registrations r
+		JOIN reg_users u ON u.id = r.user_id
+		WHERE r.event_id = $1
+		  AND r.status = 'verified'
+		ORDER BY u.last_name, u.first_name`, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("badges query: %w", err)
+	}
+	return rows, nil
+}
+
+// GetMultiEventStats returns aggregate stats across all active events.
+func (r *ReportRepository) GetMultiEventStats(ctx context.Context) ([]model.MultiEventStats, error) {
+	var rows []model.MultiEventStats
+	err := r.db.SelectContext(ctx, &rows, `
+		SELECT
+			e.id                                                              AS event_id,
+			e.title                                                           AS event_title,
+			COALESCE(e.event_date, '')                                        AS event_date,
+			e.is_online,
+			COUNT(r.id)                                                       AS total_regs,
+			COUNT(r.id) FILTER (WHERE r.status = 'verified')                 AS verified_regs,
+			COUNT(r.id) FILTER (WHERE u.is_union_member AND r.status='verified') AS union_members,
+			COUNT(r.id) FILTER (WHERE r.checked_in_at IS NOT NULL)           AS checked_in
+		FROM reg_events e
+		LEFT JOIN reg_registrations r ON r.event_id = e.id
+		LEFT JOIN reg_users u ON u.id = r.user_id
+		WHERE e.is_active = TRUE
+		GROUP BY e.id, e.title, e.event_date, e.is_online
+		ORDER BY e.id DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("multi-event stats: %w", err)
+	}
+	return rows, nil
+}
+

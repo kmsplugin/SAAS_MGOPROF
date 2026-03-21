@@ -35,6 +35,7 @@ export default function DashboardPage() {
           <nav className="flex items-center gap-6 text-sm text-gray-400">
             <Link href="/events" className="hover:text-white">Мероприятия</Link>
             {isAdmin && <Link href="/dashboard/events/new" className="hover:text-white">Создать</Link>}
+            {isAdmin && <Link href="/dashboard/analytics" className="hover:text-white">Аналитика</Link>}
             {isAdmin && <Link href="/dashboard/admin" className="hover:text-white font-medium text-brand">Админ</Link>}
             <button onClick={() => { logout(); router.push('/login') }} className="hover:text-white">
               Выйти

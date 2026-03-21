@@ -113,12 +113,14 @@ func (r *RegistrationRepository) UpdateOTPTx(
 	return nil
 }
 
-// SetVerified marks a registration as verified and assigns a unique participant token.
+// SetVerified marks a registration as verified, assigns a participant token,
+// and clears the OTP code so it cannot be reused even if status checks are bypassed.
 func (r *RegistrationRepository) SetVerified(ctx context.Context, id int, token string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE reg_registrations
 		 SET status='verified', otp_verified_at=NOW(), updated_at=NOW(),
-		     participant_token=$2
+		     participant_token=$2,
+		     otp_code=NULL, otp_expires_at=NOW()
 		 WHERE id=$1`,
 		id, token,
 	)
@@ -154,8 +156,10 @@ func (r *RegistrationRepository) SetCheckedIn(ctx context.Context, id int) error
 
 const regRowSelectSQL = `
 	SELECT
-		r.created_at                  AS reg_datetime,
-		e.title                       AS event_title,
+		r.id                                            AS reg_id,
+		r.created_at                                    AS reg_datetime,
+		r.event_id,
+		e.title                                         AS event_title,
 		u.last_name,
 		u.first_name,
 		u.patronymic,
@@ -163,18 +167,24 @@ const regRowSelectSQL = `
 		u.district,
 		u.email,
 		u.is_union_member,
-		COALESCE(u.union_ticket, '')  AS union_ticket,
-		COALESCE(u.extra_info, '')    AS extra_info,
-		COALESCE(r.ip_address, '')    AS ip_address,
-		COALESCE(r.geo_country, '')   AS geo_country,
-		COALESCE(r.geo_region, '')    AS geo_region,
-		COALESCE(r.geo_city, '')      AS geo_city,
-		COALESCE(r.isp_name, '')      AS isp_name,
-		COALESCE(r.isp_asn, '')       AS isp_asn,
-		COALESCE(r.device_type, '')   AS device_type,
-		COALESCE(r.os_name, '')       AS os_name,
-		COALESCE(r.browser_name, '')  AS browser_name,
-		r.status
+		COALESCE(u.union_ticket, '')                    AS union_ticket,
+		COALESCE(u.extra_info, '')                      AS extra_info,
+		COALESCE(r.ip_address, '')                      AS ip_address,
+		COALESCE(r.geo_country, '')                     AS geo_country,
+		COALESCE(r.geo_region, '')                      AS geo_region,
+		COALESCE(r.geo_city, '')                        AS geo_city,
+		COALESCE(r.isp_name, '')                        AS isp_name,
+		COALESCE(r.isp_asn, '')                         AS isp_asn,
+		COALESCE(r.device_type, '')                     AS device_type,
+		COALESCE(r.os_name, '')                         AS os_name,
+		COALESCE(r.browser_name, '')                    AS browser_name,
+		r.status,
+		COALESCE(r.status_extended, r.status)           AS status_extended,
+		COALESCE(r.scan_count, 0)                       AS scan_count,
+		r.otp_verified_at,
+		r.checked_in_at,
+		r.first_entry_at,
+		r.last_exit_at
 	FROM reg_registrations r
 	INNER JOIN reg_events e ON e.id = r.event_id
 	INNER JOIN reg_users  u ON u.id = r.user_id`
@@ -199,12 +209,37 @@ func (r *RegistrationRepository) ListRecent(ctx context.Context, limit int) ([]m
 	return rows, nil
 }
 
+// CabinetEventRow combines event data with the participant's role-specific link.
+type CabinetEventRow struct {
+	model.Event
+	ParticipantRole string `db:"participant_role" json:"participant_role"`
+	// EventLink is the role-resolved URL to show in the cabinet:
+	//   speakers/moderators → speaker_link (if set)
+	//   all others          → viewer_link (if set), falling back to cabinet_link
+	EventLink string `db:"event_link" json:"event_link"`
+}
+
 // ListByUserVerified returns verified registrations for a given user (cabinet).
-func (r *RegistrationRepository) ListByUserVerified(ctx context.Context, userID int) ([]model.Event, error) {
-	var events []model.Event
-	err := r.db.SelectContext(ctx, &events, `
+// The returned EventLink is resolved per participant role.
+func (r *RegistrationRepository) ListByUserVerified(ctx context.Context, userID int) ([]CabinetEventRow, error) {
+	var rows []CabinetEventRow
+	err := r.db.SelectContext(ctx, &rows, `
 		SELECT e.id, e.title, e.description, e.event_date, e.event_time,
-		       e.cabinet_link, e.is_active, e.created_at, e.updated_at
+		       e.cabinet_link, e.speaker_link, e.viewer_link,
+		       e.is_active, e.is_online, e.event_type,
+		       e.start_at, e.end_at, e.venue, e.address,
+		       e.capacity, e.cover_url, e.check_in_mode,
+		       e.registration_opens_at, e.registration_closes_at,
+		       e.badge_template_id, e.max_scans_per_ticket,
+		       e.created_at, e.updated_at,
+		       r.participant_role,
+		       CASE
+		           WHEN r.participant_role IN ('speaker','moderator') AND e.speaker_link != ''
+		               THEN e.speaker_link
+		           WHEN e.viewer_link != ''
+		               THEN e.viewer_link
+		           ELSE e.cabinet_link
+		       END AS event_link
 		FROM reg_events e
 		INNER JOIN reg_registrations r ON r.event_id = e.id
 		WHERE r.user_id = $1 AND r.status = 'verified'
@@ -212,7 +247,7 @@ func (r *RegistrationRepository) ListByUserVerified(ctx context.Context, userID 
 	if err != nil {
 		return nil, fmt.Errorf("reg ListByUserVerified: %w", err)
 	}
-	return events, nil
+	return rows, nil
 }
 
 // CountVerifiedByEvent returns the number of verified registrations for an event.

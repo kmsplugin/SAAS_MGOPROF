@@ -157,7 +157,7 @@ func (h *AuthHandler) MyEvents(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Status: "error", Message: "Ошибка получения мероприятий."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"events": events})
+	c.JSON(http.StatusOK, gin.H{"events": events, "total": len(events)})
 }
 
 // CancelRegistration godoc

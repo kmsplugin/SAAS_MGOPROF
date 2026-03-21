@@ -189,26 +189,13 @@ func (m *Mailer) buildMessage(to, subject, html string) string {
 
 // ── Public send methods ───────────────────────────────────────────────────────
 
-// SendRegistration sends OTP (and optional password) to a new registrant.
+// SendRegistration sends an OTP confirmation code to a new registrant.
 // Enqueued ASYNC — HTTP handler returns immediately; SMTP happens in background.
 // If delivery fails it is logged but the registration is not rolled back.
-func (m *Mailer) SendRegistration(
-	to, firstName, otp string,
-	password *string,
-	loginURL, eventTitle string,
-) error {
+func (m *Mailer) SendRegistration(to, firstName, otp, eventTitle string) error {
 	name := firstName
 	if name == "" {
 		name = "участник"
-	}
-
-	passwordBlock := ""
-	if password != nil && *password != "" {
-		passwordBlock = fmt.Sprintf(
-			`<p><strong>Пароль для личного кабинета:</strong> <code style="background:#f0f0f0;padding:2px 6px;border-radius:4px">%s</code></p>
-			 <p>Ссылка для входа: <a href="%s">%s</a></p>`,
-			*password, loginURL, loginURL,
-		)
 	}
 
 	html := fmt.Sprintf(`
@@ -219,13 +206,57 @@ func (m *Mailer) SendRegistration(
 		  <p>Ваш код подтверждения:</p>
 		  <p style="font-size:36px;font-weight:bold;letter-spacing:8px;color:#009b35;margin:16px 0">%s</p>
 		  <p style="color:#888;font-size:13px">Код действителен 10 минут.</p>
-		  %s
 		  <p style="color:#aaa;font-size:12px">Если вы не запрашивали регистрацию — просто проигнорируйте это письмо.</p>
 		</div>
-	`, name, eventTitle, otp, passwordBlock)
+	`, name, eventTitle, otp)
 
 	// Async: do not block HTTP handler on SMTP latency.
 	m.sendAsync(to, "Код подтверждения регистрации", html)
+	return nil
+}
+
+// SendWelcome sends credentials and participation details after successful OTP verification.
+// Includes login, password, participant ID, ticket link and cabinet link. ASYNC.
+func (m *Mailer) SendWelcome(to, firstName, password string, userID, regID int, cabinetURL, ticketURL string) error {
+	name := firstName
+	if name == "" {
+		name = "участник"
+	}
+
+	ticketBlock := ""
+	if ticketURL != "" {
+		ticketBlock = fmt.Sprintf(`
+		  <p>Ваш билет с QR-кодом:</p>
+		  <p>
+		    <a href="%s" style="display:inline-block;padding:12px 24px;background:linear-gradient(135deg,#ff7c2c,#009b35);color:#fff;text-decoration:none;border-radius:8px;font-weight:bold">
+		      Открыть билет / QR
+		    </a>
+		  </p>`, ticketURL)
+	}
+
+	html := fmt.Sprintf(`
+		<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
+		  <p>Здравствуйте, <strong>%s</strong>!</p>
+		  <p>Ваш email подтверждён. Доступ в личный кабинет активирован.</p>
+		  <table style="width:100%%;border-collapse:collapse;margin:16px 0">
+		    <tr><td style="padding:8px;color:#555;width:40%%">Логин (email):</td>
+		        <td style="padding:8px;font-weight:bold">%s</td></tr>
+		    <tr style="background:#f9f9f9"><td style="padding:8px;color:#555">Пароль:</td>
+		        <td style="padding:8px"><code style="background:#f0f0f0;padding:2px 6px;border-radius:4px;font-size:15px">%s</code></td></tr>
+		    <tr><td style="padding:8px;color:#555">ID участника:</td>
+		        <td style="padding:8px;color:#666">#%d (рег. №%d)</td></tr>
+		  </table>
+		  <p>
+		    <a href="%s" style="display:inline-block;padding:12px 24px;background:#009b35;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold">
+		      Перейти в личный кабинет
+		    </a>
+		  </p>
+		  %s
+		  <p style="color:#aaa;font-size:12px;margin-top:24px">Рекомендуем сменить пароль после первого входа.</p>
+		</div>
+	`, name, to, password, userID, regID, cabinetURL, ticketBlock)
+
+	m.sendAsync(to, "Добро пожаловать! Ваши данные для входа", html)
 	return nil
 }
 

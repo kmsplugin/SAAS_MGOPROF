@@ -50,21 +50,30 @@ type EventReport struct {
 
 // Event represents a reg_events row.
 type Event struct {
-	ID          int        `db:"id"           json:"id"`
-	Title       string     `db:"title"        json:"title"`
-	Description string     `db:"description"  json:"description"`
-	EventDate   string     `db:"event_date"   json:"event_date"`
-	EventTime   string     `db:"event_time"   json:"event_time"`
-	StartAt     *time.Time `db:"start_at"     json:"start_at,omitempty"`
-	Venue       string     `db:"venue"        json:"venue"`
-	Address     string     `db:"address"      json:"address"`
-	Capacity    int        `db:"capacity"     json:"capacity"` // 0 = unlimited
-	CoverURL    string     `db:"cover_url"    json:"cover_url"`
-	CabinetLink string     `db:"cabinet_link" json:"cabinet_link"`
-	IsActive    bool       `db:"is_active"    json:"is_active"`
-	IsOnline    bool       `db:"is_online"    json:"is_online"`
-	CreatedAt   time.Time  `db:"created_at"   json:"created_at"`
-	UpdatedAt   *time.Time `db:"updated_at"   json:"updated_at,omitempty"`
+	ID                    int        `db:"id"                      json:"id"`
+	Title                 string     `db:"title"                   json:"title"`
+	Description           string     `db:"description"             json:"description"`
+	EventDate             string     `db:"event_date"              json:"event_date"`
+	EventTime             string     `db:"event_time"              json:"event_time"`
+	StartAt               *time.Time `db:"start_at"                json:"start_at,omitempty"`
+	EndAt                 *time.Time `db:"end_at"                  json:"end_at,omitempty"`
+	Venue                 string     `db:"venue"                   json:"venue"`
+	Address               string     `db:"address"                 json:"address"`
+	Capacity              int        `db:"capacity"                json:"capacity"` // 0 = unlimited
+	CoverURL              string     `db:"cover_url"               json:"cover_url"`
+	CabinetLink           string     `db:"cabinet_link"            json:"cabinet_link"`
+	SpeakerLink           string     `db:"speaker_link"            json:"speaker_link"`
+	ViewerLink            string     `db:"viewer_link"             json:"viewer_link"`
+	IsActive              bool       `db:"is_active"               json:"is_active"`
+	IsOnline              bool       `db:"is_online"               json:"is_online"`
+	EventType             string     `db:"event_type"              json:"event_type"`              // online|offline|hybrid
+	CheckInMode           string     `db:"check_in_mode"           json:"check_in_mode"`           // none|entry_only|entry_exit
+	RegistrationOpensAt   *time.Time `db:"registration_opens_at"   json:"registration_opens_at,omitempty"`
+	RegistrationClosesAt  *time.Time `db:"registration_closes_at"  json:"registration_closes_at,omitempty"`
+	BadgeTemplateID       *int       `db:"badge_template_id"       json:"badge_template_id,omitempty"`
+	MaxScansPerTicket     int        `db:"max_scans_per_ticket"    json:"max_scans_per_ticket"`
+	CreatedAt             time.Time  `db:"created_at"              json:"created_at"`
+	UpdatedAt             *time.Time `db:"updated_at"              json:"updated_at,omitempty"`
 }
 
 // EventWithStats extends Event with aggregated registration counts.
@@ -116,10 +125,25 @@ type Registration struct {
 	OSName           string     `db:"os_name"           json:"os_name"`
 	BrowserName      string     `db:"browser_name"      json:"browser_name"`
 	UserAgent        string     `db:"user_agent"        json:"-"`
-	ParticipantToken *string    `db:"participant_token" json:"participant_token,omitempty"`
-	CheckedInAt      *time.Time `db:"checked_in_at"     json:"checked_in_at,omitempty"`
-	CreatedAt        time.Time  `db:"created_at"        json:"created_at"`
-	UpdatedAt        *time.Time `db:"updated_at"        json:"updated_at,omitempty"`
+	ParticipantToken *string    `db:"participant_token"  json:"participant_token,omitempty"`
+	ParticipantRole  string     `db:"participant_role"   json:"participant_role"`
+	CheckedInAt      *time.Time `db:"checked_in_at"      json:"checked_in_at,omitempty"`
+	CreatedAt        time.Time  `db:"created_at"         json:"created_at"`
+	UpdatedAt        *time.Time `db:"updated_at"         json:"updated_at,omitempty"`
+}
+
+// OnlineSession represents one continuous participation window in an online event.
+type OnlineSession struct {
+	ID             int64      `db:"id"              json:"id"`
+	EventID        int        `db:"event_id"        json:"event_id"`
+	UserID         int        `db:"user_id"         json:"user_id"`
+	RegistrationID *int       `db:"registration_id" json:"registration_id,omitempty"`
+	SessionUUID    string     `db:"session_uuid"    json:"session_uuid"`
+	StartedAt      time.Time  `db:"started_at"      json:"started_at"`
+	LastPingAt     time.Time  `db:"last_ping_at"    json:"last_ping_at"`
+	EndedAt        *time.Time `db:"ended_at"        json:"ended_at,omitempty"`
+	DurationSeconds *int      `db:"duration_seconds" json:"duration_seconds,omitempty"`
+	EndReason      *string    `db:"end_reason"      json:"end_reason,omitempty"`
 }
 
 // TicketInfo bundles everything needed to render a participant ticket.
@@ -146,27 +170,35 @@ type CheckInResult struct {
 
 // RegistrationRow is used for admin list/export queries joining all tables.
 type RegistrationRow struct {
-	RegDatetime   time.Time `db:"reg_datetime"   json:"reg_datetime"`
-	EventTitle    string    `db:"event_title"    json:"event_title"`
-	LastName      string    `db:"last_name"      json:"last_name"`
-	FirstName     string    `db:"first_name"     json:"first_name"`
-	Patronymic    string    `db:"patronymic"     json:"patronymic"`
-	Organization  string    `db:"organization"   json:"organization"`
-	District      string    `db:"district"       json:"district"`
-	Email         string    `db:"email"          json:"email"`
-	IsUnionMember bool      `db:"is_union_member" json:"is_union_member"`
-	UnionTicket   string    `db:"union_ticket"   json:"union_ticket"`
-	ExtraInfo     string    `db:"extra_info"     json:"extra_info"`
-	IPAddress     string    `db:"ip_address"     json:"ip_address"`
-	GeoCountry    string    `db:"geo_country"    json:"geo_country"`
-	GeoRegion     string    `db:"geo_region"     json:"geo_region"`
-	GeoCity       string    `db:"geo_city"       json:"geo_city"`
-	ISPName       string    `db:"isp_name"       json:"isp_name"`
-	ISPASN        string    `db:"isp_asn"        json:"isp_asn"`
-	DeviceType    string    `db:"device_type"    json:"device_type"`
-	OSName        string    `db:"os_name"        json:"os_name"`
-	BrowserName   string    `db:"browser_name"   json:"browser_name"`
-	Status        string    `db:"status"         json:"status"`
+	RegID          int        `db:"reg_id"          json:"reg_id"`
+	RegDatetime    time.Time  `db:"reg_datetime"    json:"reg_datetime"`
+	EventID        int        `db:"event_id"        json:"event_id"`
+	EventTitle     string     `db:"event_title"     json:"event_title"`
+	LastName       string     `db:"last_name"       json:"last_name"`
+	FirstName      string     `db:"first_name"      json:"first_name"`
+	Patronymic     string     `db:"patronymic"      json:"patronymic"`
+	Organization   string     `db:"organization"    json:"organization"`
+	District       string     `db:"district"        json:"district"`
+	Email          string     `db:"email"           json:"email"`
+	IsUnionMember  bool       `db:"is_union_member" json:"is_union_member"`
+	UnionTicket    string     `db:"union_ticket"    json:"union_ticket"`
+	ExtraInfo      string     `db:"extra_info"      json:"extra_info"`
+	IPAddress      string     `db:"ip_address"      json:"ip_address"`
+	GeoCountry     string     `db:"geo_country"     json:"geo_country"`
+	GeoRegion      string     `db:"geo_region"      json:"geo_region"`
+	GeoCity        string     `db:"geo_city"        json:"geo_city"`
+	ISPName        string     `db:"isp_name"        json:"isp_name"`
+	ISPASN         string     `db:"isp_asn"         json:"isp_asn"`
+	DeviceType     string     `db:"device_type"     json:"device_type"`
+	OSName         string     `db:"os_name"         json:"os_name"`
+	BrowserName    string     `db:"browser_name"    json:"browser_name"`
+	Status         string     `db:"status"           json:"status"`
+	StatusExtended string     `db:"status_extended"  json:"status_extended"`
+	ScanCount      int        `db:"scan_count"       json:"scan_count"`
+	OTPVerifiedAt  *time.Time `db:"otp_verified_at"  json:"otp_verified_at,omitempty"`
+	CheckedInAt    *time.Time `db:"checked_in_at"    json:"checked_in_at,omitempty"`
+	FirstEntryAt   *time.Time `db:"first_entry_at"   json:"first_entry_at,omitempty"`
+	LastExitAt     *time.Time `db:"last_exit_at"     json:"last_exit_at,omitempty"`
 }
 
 // Log represents a reg_logs row.
@@ -227,15 +259,24 @@ type TrackingEvent struct {
 
 // EventField is a custom registration field defined by admin per event.
 type EventField struct {
-	ID         int        `db:"id"          json:"id"`
-	EventID    int        `db:"event_id"    json:"event_id"`
-	Label      string     `db:"label"       json:"label"`
-	FieldType  string     `db:"field_type"  json:"field_type"` // text|textarea|select|checkbox|radio
-	Options    []string   `db:"options"     json:"options,omitempty"` // for select/radio/checkbox
-	Placeholder string    `db:"placeholder" json:"placeholder"`
-	IsRequired  bool      `db:"is_required" json:"is_required"`
-	SortOrder   int       `db:"sort_order"  json:"sort_order"`
-	CreatedAt   time.Time `db:"created_at"  json:"created_at"`
+	ID              int        `db:"id"               json:"id"`
+	EventID         int        `db:"event_id"         json:"event_id"`
+	Label           string     `db:"label"            json:"label"`
+	FieldType       string     `db:"field_type"       json:"field_type"` // text|textarea|select|multiselect|checkbox|radio|phone|number|date|hidden|masked|file
+	Options         []string   `db:"options"          json:"options,omitempty"` // for select/radio/checkbox
+	Placeholder     string     `db:"placeholder"      json:"placeholder"`
+	HelperText      string     `db:"helper_text"      json:"helper_text"`
+	ValidationRegex string     `db:"validation_regex" json:"validation_regex,omitempty"`
+	IsRequired      bool       `db:"is_required"      json:"is_required"`
+	InBadge         bool       `db:"in_badge"         json:"in_badge"`
+	InReport        bool       `db:"in_report"        json:"in_report"`
+	InExport        bool       `db:"in_export"        json:"in_export"`
+	ListID          *int       `db:"list_id"          json:"list_id,omitempty"` // FK to ref_lists
+	MinValue        *float64   `db:"min_value"        json:"min_value,omitempty"`
+	MaxValue        *float64   `db:"max_value"        json:"max_value,omitempty"`
+	MaxLength       *int       `db:"max_length"       json:"max_length,omitempty"`
+	SortOrder       int        `db:"sort_order"       json:"sort_order"`
+	CreatedAt       time.Time  `db:"created_at"       json:"created_at"`
 }
 
 // FieldAnswer is a registrant's answer to one custom field.
@@ -306,12 +347,21 @@ type TrackActionRequest struct {
 }
 
 type CreateFieldRequest struct {
-	Label       string   `json:"label"       binding:"required"`
-	FieldType   string   `json:"field_type"  binding:"required,oneof=text textarea select checkbox radio"`
-	Options     []string `json:"options"`
-	Placeholder string   `json:"placeholder"`
-	IsRequired  bool     `json:"is_required"`
-	SortOrder   int      `json:"sort_order"`
+	Label           string   `json:"label"            binding:"required"`
+	FieldType       string   `json:"field_type"       binding:"required,oneof=text textarea select multiselect checkbox radio phone number date hidden masked file"`
+	Options         []string `json:"options"`
+	Placeholder     string   `json:"placeholder"`
+	HelperText      string   `json:"helper_text"`
+	ValidationRegex string   `json:"validation_regex"`
+	IsRequired      bool     `json:"is_required"`
+	InBadge         bool     `json:"in_badge"`
+	InReport        bool     `json:"in_report"`
+	InExport        bool     `json:"in_export"`
+	ListID          *int     `json:"list_id"`
+	MinValue        *float64 `json:"min_value"`
+	MaxValue        *float64 `json:"max_value"`
+	MaxLength       *int     `json:"max_length"`
+	SortOrder       int      `json:"sort_order"`
 }
 
 type VerifyOTPRequest struct {
@@ -340,18 +390,25 @@ type AdminVerifyOTPRequest struct {
 }
 
 type CreateEventRequest struct {
-	Title       string  `json:"title"        binding:"required"`
-	Description string  `json:"description"`
-	EventDate   string  `json:"event_date"   binding:"required"`
-	EventTime   string  `json:"event_time"   binding:"required"`
-	StartAt     *string `json:"start_at"`    // RFC3339 or null
-	Venue       string  `json:"venue"`
-	Address     string  `json:"address"`
-	Capacity    int     `json:"capacity"`    // 0 = unlimited
-	CoverURL    string  `json:"cover_url"`
-	CabinetLink string  `json:"cabinet_link"`
-	IsActive    bool    `json:"is_active"`
-	IsOnline    bool    `json:"is_online"`
+	Title                string  `json:"title"                   binding:"required"`
+	Description          string  `json:"description"`
+	EventDate            string  `json:"event_date"              binding:"required"`
+	EventTime            string  `json:"event_time"              binding:"required"`
+	StartAt              *string `json:"start_at"`               // RFC3339 or null
+	EndAt                *string `json:"end_at"`                 // RFC3339 or null
+	Venue                string  `json:"venue"`
+	Address              string  `json:"address"`
+	Capacity             int     `json:"capacity"`               // 0 = unlimited
+	CoverURL             string  `json:"cover_url"`
+	CabinetLink          string  `json:"cabinet_link"`
+	IsActive             bool    `json:"is_active"`
+	IsOnline             bool    `json:"is_online"`
+	EventType            string  `json:"event_type"`             // online|offline|hybrid
+	CheckInMode          string  `json:"check_in_mode"`          // none|entry_only|entry_exit
+	RegistrationOpensAt  *string `json:"registration_opens_at"`  // RFC3339 or null
+	RegistrationClosesAt *string `json:"registration_closes_at"` // RFC3339 or null
+	BadgeTemplateID      *int    `json:"badge_template_id"`
+	MaxScansPerTicket    int     `json:"max_scans_per_ticket"`
 }
 
 // UpdateProfileRequest is used by PUT /api/cabinet/profile.

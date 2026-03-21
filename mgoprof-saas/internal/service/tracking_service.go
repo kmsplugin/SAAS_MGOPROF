@@ -33,6 +33,7 @@ func (s *TrackingService) RecordAction(ctx context.Context, userID, eventID int,
 	allowed := map[string]bool{
 		"visit": true, "stream_connect": true,
 		"stream_disconnect": true, "stream_error": true,
+		"heartbeat": true,
 	}
 	if !allowed[action] {
 		return fmt.Errorf("unknown action: %s", action)

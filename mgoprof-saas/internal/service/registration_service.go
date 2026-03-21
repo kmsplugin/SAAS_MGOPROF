@@ -113,7 +113,6 @@ func (s *RegistrationService) Register(
 	devInfo := ParseUserAgent(userAgent)
 
 	var (
-		userPassword   *string
 		passwordIssued bool
 		needSendOTP    = true
 		newRegID       int
@@ -133,7 +132,7 @@ func (s *RegistrationService) Register(
 			if err := s.userRepo.UpdateTx(ctx, tx, userID, req, ip, geoInfo, userAgent); err != nil {
 				return fmt.Errorf("обновление пользователя: %w", err)
 			}
-			// Issue password if not set
+			// Issue a placeholder password if not set (will be replaced at OTP verification)
 			if user.PasswordHash == "" {
 				pwd := generatePassword(passwordLength)
 				hash, err := hashPassword(pwd)
@@ -143,7 +142,6 @@ func (s *RegistrationService) Register(
 				if err := s.userRepo.SetPasswordTx(ctx, tx, userID, hash); err != nil {
 					return err
 				}
-				userPassword = &pwd
 				passwordIssued = true
 			}
 		} else {
@@ -156,7 +154,6 @@ func (s *RegistrationService) Register(
 			if err != nil {
 				return fmt.Errorf("создание пользователя: %w", err)
 			}
-			userPassword = &pwd
 			passwordIssued = true
 		}
 
@@ -237,7 +234,7 @@ func (s *RegistrationService) Register(
 	}
 
 	if needSendOTP {
-		if mailErr := s.mailer.SendRegistration(email, req.FirstName, otp, userPassword, cabinetURL, event.Title); mailErr != nil {
+		if mailErr := s.mailer.SendRegistration(email, req.FirstName, otp, event.Title); mailErr != nil {
 			s.logger.Error("registration email failed",
 				zap.String("email", email),
 				zap.Error(mailErr),
@@ -254,7 +251,7 @@ func (s *RegistrationService) Register(
 	}
 
 	if passwordIssued {
-		message += " Пароль для кабинета также отправлен на почту."
+		message += " После подтверждения кода данные для входа придут на почту."
 	}
 
 	status := "success"
@@ -271,53 +268,68 @@ func (s *RegistrationService) Register(
 	}, nil
 }
 
-// VerifyOTP verifies the OTP and marks the registration as verified.
-func (s *RegistrationService) VerifyOTP(ctx context.Context, req model.VerifyOTPRequest, ip, userAgent string) error {
+// VerifyOTP verifies the OTP, marks the registration as verified, issues fresh
+// credentials and sends the welcome email. Returns the cabinet redirect URL.
+func (s *RegistrationService) VerifyOTP(ctx context.Context, req model.VerifyOTPRequest, ip, userAgent string) (string, error) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
+	cabinetURL := fmt.Sprintf("%s/cabinet/login?email=%s", s.siteURL, email)
 
 	user, err := s.userRepo.FindByEmail(ctx, email)
 	if err != nil {
-		return fmt.Errorf("поиск пользователя: %w", err)
+		return "", fmt.Errorf("поиск пользователя: %w", err)
 	}
 	if user == nil {
-		return fmt.Errorf("пользователь не найден")
+		return "", fmt.Errorf("пользователь не найден")
 	}
 
 	reg, err := s.regRepo.FindByEventAndUser(ctx, req.EventID, user.ID)
 	if err != nil {
-		return fmt.Errorf("поиск регистрации: %w", err)
+		return "", fmt.Errorf("поиск регистрации: %w", err)
 	}
 	if reg == nil {
-		return fmt.Errorf("регистрация не найдена")
+		return "", fmt.Errorf("регистрация не найдена")
 	}
 	if reg.Status == "verified" {
-		return fmt.Errorf("регистрация уже подтверждена")
+		return cabinetURL, fmt.Errorf("регистрация уже подтверждена")
 	}
 	if time.Now().After(reg.OTPExpiresAt) {
-		return fmt.Errorf("код подтверждения истёк. Запросите новый.")
+		return "", fmt.Errorf("код подтверждения истёк. Запросите новый.")
 	}
 	if reg.OTPCode != req.OTP {
 		_ = s.logRepo.Write(ctx, "otp_failed", email, ip, "invalid OTP", userAgent)
-		return fmt.Errorf("неверный код подтверждения")
+		return "", fmt.Errorf("неверный код подтверждения")
 	}
 
-	token := generateParticipantToken()
-	if err := s.regRepo.SetVerified(ctx, reg.ID, token); err != nil {
-		return fmt.Errorf("подтверждение: %w", err)
+	// Mark verified and clear OTP
+	participantToken := generateParticipantToken()
+	if err := s.regRepo.SetVerified(ctx, reg.ID, participantToken); err != nil {
+		return "", fmt.Errorf("подтверждение: %w", err)
 	}
 	_ = s.logRepo.Write(ctx, "registration_verified", email, ip,
-		fmt.Sprintf("event #%d verified, token=%s", req.EventID, token), userAgent)
+		fmt.Sprintf("event #%d verified, token=%s", req.EventID, participantToken), userAgent)
 
-	// For offline events — send a ticket email with the QR link
-	event, eventErr := s.eventRepo.FindByID(ctx, req.EventID)
-	if eventErr == nil && event != nil && !event.IsOnline {
-		ticketURL := fmt.Sprintf("%s/cabinet/events/%d/ticket", s.siteURL, req.EventID)
-		if mailErr := s.mailer.SendTicket(email, user.FirstName, event.Title, ticketURL); mailErr != nil {
-			s.logger.Warn("ticket email failed", zap.String("email", email), zap.Error(mailErr))
-		}
+	// Generate fresh password and update the user record
+	pwd := generatePassword(passwordLength)
+	hash, err := hashPassword(pwd)
+	if err != nil {
+		s.logger.Error("password hash failed", zap.String("email", email), zap.Error(err))
+	} else if err := s.userRepo.SetPassword(ctx, user.ID, hash); err != nil {
+		s.logger.Error("set password failed", zap.String("email", email), zap.Error(err))
 	}
 
-	return nil
+	// Determine ticket URL (non-empty for offline/hybrid events)
+	ticketURL := ""
+	event, eventErr := s.eventRepo.FindByID(ctx, req.EventID)
+	if eventErr == nil && event != nil && event.EventType != "online" {
+		ticketURL = fmt.Sprintf("%s/cabinet/events/%d/ticket", s.siteURL, req.EventID)
+	}
+
+	// Send welcome email with credentials and cabinet link
+	if mailErr := s.mailer.SendWelcome(email, user.FirstName, pwd, user.ID, reg.ID, cabinetURL, ticketURL); mailErr != nil {
+		s.logger.Warn("welcome email failed", zap.String("email", email), zap.Error(mailErr))
+	}
+
+	return cabinetURL, nil
 }
 
 // validateCustomAnswers checks required custom fields are filled.

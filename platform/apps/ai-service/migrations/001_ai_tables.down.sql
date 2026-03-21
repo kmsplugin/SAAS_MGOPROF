@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS ai_jobs;
+DROP TABLE IF EXISTS ai_summaries;

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -95,4 +96,73 @@ func (r *AIRepository) IsTenantAIEnabled(ctx context.Context, tenantID uuid.UUID
 		return false, fmt.Errorf("ai_repo.IsTenantAIEnabled: %w", err)
 	}
 	return enabled, nil
+}
+
+// ── Job persistence ────────────────────────────────────────────────────────────
+
+// CreateJob inserts a new job row and returns its generated ID.
+func (r *AIRepository) CreateJob(ctx context.Context, job model.AIJob) (uuid.UUID, error) {
+	id := uuid.New()
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO ai_jobs (id, event_id, tenant_id, audio_url, language, recording_id, status)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'queued')`,
+		id, job.EventID, job.TenantID, job.AudioURL, job.Language, job.RecordingID,
+	)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("ai_repo.CreateJob: %w", err)
+	}
+	return id, nil
+}
+
+// UpdateJobStatus sets status (and optional error message) for a job.
+func (r *AIRepository) UpdateJobStatus(ctx context.Context, jobID uuid.UUID, status, errMsg string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE ai_jobs SET status = $1, error_msg = $2, updated_at = NOW() WHERE id = $3`,
+		status, errMsg, jobID,
+	)
+	if err != nil {
+		return fmt.Errorf("ai_repo.UpdateJobStatus: %w", err)
+	}
+	return nil
+}
+
+// JobExistsForEvent returns true when an active (queued/processing) job exists for this event.
+func (r *AIRepository) JobExistsForEvent(ctx context.Context, eventID uuid.UUID) (bool, error) {
+	var count int
+	err := r.db.GetContext(ctx, &count,
+		`SELECT COUNT(*) FROM ai_jobs WHERE event_id = $1 AND status IN ('queued', 'processing')`,
+		eventID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("ai_repo.JobExistsForEvent: %w", err)
+	}
+	return count > 0, nil
+}
+
+// GetPendingJobs returns all queued/processing jobs for restart recovery.
+func (r *AIRepository) GetPendingJobs(ctx context.Context) ([]model.AIJobDB, error) {
+	var jobs []model.AIJobDB
+	err := r.db.SelectContext(ctx, &jobs,
+		`SELECT * FROM ai_jobs WHERE status IN ('queued', 'processing') ORDER BY created_at`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ai_repo.GetPendingJobs: %w", err)
+	}
+	return jobs, nil
+}
+
+// GetJobStatusByEvent returns the most recent job for an event within a tenant.
+func (r *AIRepository) GetJobStatusByEvent(ctx context.Context, tenantID, eventID uuid.UUID) (*model.AIJobDB, error) {
+	var job model.AIJobDB
+	err := r.db.GetContext(ctx, &job,
+		`SELECT * FROM ai_jobs WHERE tenant_id = $1 AND event_id = $2 ORDER BY created_at DESC LIMIT 1`,
+		tenantID, eventID,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("ai_repo.GetJobStatusByEvent: %w", err)
+	}
+	return &job, nil
 }

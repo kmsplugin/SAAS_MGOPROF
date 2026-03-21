@@ -29,13 +29,28 @@ type AISummary struct {
 	GeneratedAt  time.Time   `db:"generated_at"  json:"generated_at"`
 }
 
-// AIJob — задача обработки записи события.
+// AIJob — задача обработки записи события (in-memory representation).
 type AIJob struct {
-	EventID    uuid.UUID
-	TenantID   uuid.UUID
-	AudioURL   string // HTTP URL или локальный путь к файлу
-	Language   string // "ru", "en", "auto"
-	RecordingID string // egress ID (опционально)
+	EventID     uuid.UUID
+	TenantID    uuid.UUID
+	AudioURL    string    // HTTP URL или локальный путь к файлу
+	Language    string    // "ru", "en", "auto"
+	RecordingID string    // egress ID (опционально)
+	JobDBID     uuid.UUID // ID строки в ai_jobs (заполняется после INSERT)
+}
+
+// AIJobDB — строка из таблицы ai_jobs.
+type AIJobDB struct {
+	ID          uuid.UUID `db:"id"           json:"id"`
+	EventID     uuid.UUID `db:"event_id"     json:"event_id"`
+	TenantID    uuid.UUID `db:"tenant_id"    json:"tenant_id"`
+	AudioURL    string    `db:"audio_url"    json:"-"`
+	Language    string    `db:"language"     json:"language"`
+	RecordingID string    `db:"recording_id" json:"recording_id"`
+	Status      string    `db:"status"       json:"status"`
+	ErrorMsg    string    `db:"error_msg"    json:"error,omitempty"`
+	CreatedAt   time.Time `db:"created_at"   json:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at"   json:"updated_at"`
 }
 
 // JobStatus — текущий статус задачи.

@@ -137,19 +137,41 @@ func (h *SummaryHandler) TriggerProcessing(c *gin.Context) {
 
 // GetStatus возвращает текущий статус обработки события.
 // GET /api/v1/events/:event_id/ai/status
+// Header: X-Tenant-ID required for tenant isolation
 func (h *SummaryHandler) GetStatus(c *gin.Context) {
+	tenantID, ok := parseTenantID(c)
+	if !ok {
+		return
+	}
+
 	eventID, err := uuid.Parse(c.Param("event_id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid event_id"})
 		return
 	}
 
-	status := h.queue.Status(eventID)
-	if status == nil {
+	// Check in-memory cache first (reflects live processing state)
+	if status := h.queue.Status(eventID); status != nil {
+		c.JSON(http.StatusOK, status)
+		return
+	}
+
+	// Fall back to DB — also enforces tenant isolation
+	job, err := h.repo.GetJobStatusByEvent(c.Request.Context(), tenantID, eventID)
+	if err != nil {
+		h.logger.Warn("get job status", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	if job == nil {
 		c.JSON(http.StatusOK, gin.H{"event_id": eventID, "status": "no_job"})
 		return
 	}
-	c.JSON(http.StatusOK, status)
+	c.JSON(http.StatusOK, gin.H{
+		"event_id": job.EventID,
+		"status":   job.Status,
+		"error":    job.ErrorMsg,
+	})
 }
 
 // HealthCheck — livez probe.

@@ -38,9 +38,33 @@ _results: dict[str, ProcessResult] = {}  # event_id → result
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
+
+def _preload_models() -> None:
+    """Eagerly load ML models so the first request is fast."""
+    try:
+        from services import asr as asr_module
+        asr_module._load_model()
+        log.info("ASR model preloaded")
+    except Exception as exc:
+        log.warning("ASR preload failed (non-fatal): %s", exc)
+
+    if settings.hf_token:
+        try:
+            from services import diarization as diar_module
+            diar_module._load_pipeline()
+            log.info("Diarization pipeline preloaded")
+        except Exception as exc:
+            log.warning("Diarization preload failed (non-fatal): %s", exc)
+    else:
+        log.info("HF_TOKEN not set — diarization preload skipped")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     os.makedirs(settings.temp_dir, exist_ok=True)
+    log.info("Preloading ML models (this may take a minute on first run)...")
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _preload_models)
     log.info("speech-service started on port %d", settings.port)
     yield
     log.info("speech-service stopped")

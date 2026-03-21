@@ -55,15 +55,15 @@ func main() {
 
 	claudeClient := service.NewClaudeClient(cfg.AnthropicAPIKey, cfg.AnthropicModel, logger)
 	pipeline := service.NewPipeline(transcriber, claudeClient, repo, cfg.MaxAudioSize, logger)
-	queue := service.NewJobQueue(pipeline, cfg.WorkerCount, cfg.QueueSize, logger)
+	queue := service.NewJobQueue(pipeline, repo, cfg.WorkerCount, cfg.QueueSize, logger)
 
-	// Запускаем воркеры
+	// Запускаем воркеры; recoverPendingJobs вызывается внутри Start
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	queue.Start(ctx, cfg.WorkerCount)
 
 	// ── Handlers ────────────────────────────────────────────────
-	webhookH := handler.NewWebhookHandler(queue, repo, logger)
+	webhookH := handler.NewWebhookHandler(queue, repo, cfg.LiveKitWebhookSecret, logger)
 	summaryH := handler.NewSummaryHandler(queue, repo, logger)
 
 	// ── Router ──────────────────────────────────────────────────

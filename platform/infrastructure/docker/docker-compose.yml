@@ -97,6 +97,27 @@ services:
     depends_on:
       - livekit
 
+  # ── AI Service (Go — transcription + Claude analysis) ────────────────────
+
+  ai-service:
+    build:
+      context: ../../apps/ai-service
+      dockerfile: Dockerfile
+    ports:
+      - "8020:8020"
+    environment:
+      DATABASE_URL: postgres://platform:platform_secret@postgres:5432/platform?sslmode=disable
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_MODEL: claude-sonnet-4-6
+      LIVEKIT_API_SECRET: devsecret
+      PORT: 8020
+      GIN_MODE: release
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ── Web Frontend (Next.js) ────────────────────────────────────────────────
 
   web:

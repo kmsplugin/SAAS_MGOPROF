@@ -22,13 +22,22 @@ func NewFieldRepository(db *sqlx.DB) *FieldRepository {
 
 // --- Event Fields ---
 
+const fieldSelectCols = `id, event_id, label, field_type,
+	COALESCE(options,'[]'::jsonb) AS options,
+	COALESCE(placeholder,'') AS placeholder,
+	COALESCE(helper_text,'') AS helper_text,
+	COALESCE(validation_regex,'') AS validation_regex,
+	is_required,
+	COALESCE(in_badge,FALSE) AS in_badge,
+	COALESCE(in_report,TRUE) AS in_report,
+	COALESCE(in_export,TRUE) AS in_export,
+	list_id, min_value, max_value, max_length,
+	sort_order, created_at`
+
 // ListByEvent returns all fields for an event ordered by sort_order.
 func (r *FieldRepository) ListByEvent(ctx context.Context, eventID int) ([]model.EventField, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, event_id, label, field_type, COALESCE(options,'[]'::jsonb), placeholder, is_required, sort_order, created_at
-		FROM event_fields
-		WHERE event_id = $1
-		ORDER BY sort_order, id`, eventID)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+fieldSelectCols+` FROM event_fields WHERE event_id = $1 ORDER BY sort_order, id`, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("list fields: %w", err)
 	}
@@ -38,10 +47,8 @@ func (r *FieldRepository) ListByEvent(ctx context.Context, eventID int) ([]model
 
 // GetByID returns one field or nil.
 func (r *FieldRepository) GetByID(ctx context.Context, id int) (*model.EventField, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, event_id, label, field_type, COALESCE(options,'[]'::jsonb), placeholder, is_required, sort_order, created_at
-		FROM event_fields
-		WHERE id = $1`, id)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+fieldSelectCols+` FROM event_fields WHERE id = $1`, id)
 	if err != nil {
 		return nil, fmt.Errorf("get field: %w", err)
 	}
@@ -60,10 +67,15 @@ func (r *FieldRepository) Create(ctx context.Context, f model.EventField) (*mode
 		return nil, fmt.Errorf("marshal options: %w", err)
 	}
 	err = r.db.QueryRowContext(ctx, `
-		INSERT INTO event_fields (event_id, label, field_type, options, placeholder, is_required, sort_order)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO event_fields
+		    (event_id, label, field_type, options, placeholder, helper_text,
+		     validation_regex, is_required, in_badge, in_report, in_export,
+		     list_id, min_value, max_value, max_length, sort_order)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		RETURNING id, created_at`,
-		f.EventID, f.Label, f.FieldType, optJSON, f.Placeholder, f.IsRequired, f.SortOrder,
+		f.EventID, f.Label, f.FieldType, optJSON, f.Placeholder, f.HelperText,
+		f.ValidationRegex, f.IsRequired, f.InBadge, f.InReport, f.InExport,
+		f.ListID, f.MinValue, f.MaxValue, f.MaxLength, f.SortOrder,
 	).Scan(&f.ID, &f.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create field: %w", err)
@@ -79,9 +91,14 @@ func (r *FieldRepository) Update(ctx context.Context, f model.EventField) (*mode
 	}
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE event_fields
-		SET label=$1, field_type=$2, options=$3, placeholder=$4, is_required=$5, sort_order=$6
-		WHERE id=$7 AND event_id=$8`,
-		f.Label, f.FieldType, optJSON, f.Placeholder, f.IsRequired, f.SortOrder, f.ID, f.EventID,
+		SET label=$1, field_type=$2, options=$3, placeholder=$4, helper_text=$5,
+		    validation_regex=$6, is_required=$7, in_badge=$8, in_report=$9, in_export=$10,
+		    list_id=$11, min_value=$12, max_value=$13, max_length=$14, sort_order=$15
+		WHERE id=$16 AND event_id=$17`,
+		f.Label, f.FieldType, optJSON, f.Placeholder, f.HelperText,
+		f.ValidationRegex, f.IsRequired, f.InBadge, f.InReport, f.InExport,
+		f.ListID, f.MinValue, f.MaxValue, f.MaxLength, f.SortOrder,
+		f.ID, f.EventID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update field: %w", err)
@@ -142,8 +159,13 @@ func scanFields(rows *sql.Rows) ([]model.EventField, error) {
 	for rows.Next() {
 		var f model.EventField
 		var optRaw []byte
-		if err := rows.Scan(&f.ID, &f.EventID, &f.Label, &f.FieldType, &optRaw,
-			&f.Placeholder, &f.IsRequired, &f.SortOrder, &f.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&f.ID, &f.EventID, &f.Label, &f.FieldType, &optRaw,
+			&f.Placeholder, &f.HelperText, &f.ValidationRegex,
+			&f.IsRequired, &f.InBadge, &f.InReport, &f.InExport,
+			&f.ListID, &f.MinValue, &f.MaxValue, &f.MaxLength,
+			&f.SortOrder, &f.CreatedAt,
+		); err != nil {
 			return nil, fmt.Errorf("scan field: %w", err)
 		}
 		if len(optRaw) > 0 {

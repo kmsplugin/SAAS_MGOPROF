@@ -26,13 +26,22 @@ func (s *FieldService) ListByEvent(ctx context.Context, eventID int) ([]model.Ev
 
 func (s *FieldService) Create(ctx context.Context, eventID int, req model.CreateFieldRequest) (*model.EventField, error) {
 	f := model.EventField{
-		EventID:     eventID,
-		Label:       req.Label,
-		FieldType:   req.FieldType,
-		Options:     req.Options,
-		Placeholder: req.Placeholder,
-		IsRequired:  req.IsRequired,
-		SortOrder:   req.SortOrder,
+		EventID:         eventID,
+		Label:           req.Label,
+		FieldType:       req.FieldType,
+		Options:         req.Options,
+		Placeholder:     req.Placeholder,
+		HelperText:      req.HelperText,
+		ValidationRegex: req.ValidationRegex,
+		IsRequired:      req.IsRequired,
+		InBadge:         req.InBadge,
+		InReport:        req.InReport,
+		InExport:        req.InExport,
+		ListID:          req.ListID,
+		MinValue:        req.MinValue,
+		MaxValue:        req.MaxValue,
+		MaxLength:       req.MaxLength,
+		SortOrder:       req.SortOrder,
 	}
 	if f.Options == nil {
 		f.Options = []string{}
@@ -42,14 +51,23 @@ func (s *FieldService) Create(ctx context.Context, eventID int, req model.Create
 
 func (s *FieldService) Update(ctx context.Context, eventID, fieldID int, req model.CreateFieldRequest) (*model.EventField, error) {
 	f := model.EventField{
-		ID:          fieldID,
-		EventID:     eventID,
-		Label:       req.Label,
-		FieldType:   req.FieldType,
-		Options:     req.Options,
-		Placeholder: req.Placeholder,
-		IsRequired:  req.IsRequired,
-		SortOrder:   req.SortOrder,
+		ID:              fieldID,
+		EventID:         eventID,
+		Label:           req.Label,
+		FieldType:       req.FieldType,
+		Options:         req.Options,
+		Placeholder:     req.Placeholder,
+		HelperText:      req.HelperText,
+		ValidationRegex: req.ValidationRegex,
+		IsRequired:      req.IsRequired,
+		InBadge:         req.InBadge,
+		InReport:        req.InReport,
+		InExport:        req.InExport,
+		ListID:          req.ListID,
+		MinValue:        req.MinValue,
+		MaxValue:        req.MaxValue,
+		MaxLength:       req.MaxLength,
+		SortOrder:       req.SortOrder,
 	}
 	if f.Options == nil {
 		f.Options = []string{}

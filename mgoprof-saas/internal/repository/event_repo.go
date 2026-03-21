@@ -128,16 +128,38 @@ func (r *EventRepository) CountVerified(ctx context.Context, eventID int) (int, 
 }
 
 func (r *EventRepository) Create(ctx context.Context, req model.CreateEventRequest) (int, error) {
+	et := req.EventType
+	if et == "" {
+		if req.IsOnline {
+			et = "online"
+		} else {
+			et = "offline"
+		}
+	}
+	ci := req.CheckInMode
+	if ci == "" {
+		ci = "none"
+	}
+	ms := req.MaxScansPerTicket
+	if ms == 0 {
+		ms = 1
+	}
 	var id int
 	err := r.db.QueryRowContext(ctx,
 		`INSERT INTO reg_events
-		   (title, description, event_date, event_time, start_at, venue, address,
-		    capacity, cover_url, cabinet_link, is_active, is_online)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+		   (title, description, event_date, event_time, start_at, end_at,
+		    venue, address, capacity, cover_url, cabinet_link,
+		    is_active, is_online, event_type, check_in_mode,
+		    registration_opens_at, registration_closes_at,
+		    badge_template_id, max_scans_per_ticket)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+		 RETURNING id`,
 		req.Title, req.Description, req.EventDate, req.EventTime,
-		req.StartAt, req.Venue, req.Address,
+		req.StartAt, req.EndAt, req.Venue, req.Address,
 		req.Capacity, req.CoverURL, req.CabinetLink,
-		req.IsActive, req.IsOnline,
+		req.IsActive, req.IsOnline, et, ci,
+		req.RegistrationOpensAt, req.RegistrationClosesAt,
+		req.BadgeTemplateID, ms,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("event Create: %w", err)
@@ -146,16 +168,38 @@ func (r *EventRepository) Create(ctx context.Context, req model.CreateEventReque
 }
 
 func (r *EventRepository) Update(ctx context.Context, id int, req model.CreateEventRequest) error {
+	et := req.EventType
+	if et == "" {
+		if req.IsOnline {
+			et = "online"
+		} else {
+			et = "offline"
+		}
+	}
+	ci := req.CheckInMode
+	if ci == "" {
+		ci = "none"
+	}
+	ms := req.MaxScansPerTicket
+	if ms == 0 {
+		ms = 1
+	}
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE reg_events
 		 SET title=$1, description=$2, event_date=$3, event_time=$4,
-		     start_at=$5, venue=$6, address=$7, capacity=$8,
-		     cover_url=$9, cabinet_link=$10, is_active=$11, is_online=$12,
+		     start_at=$5, end_at=$6, venue=$7, address=$8, capacity=$9,
+		     cover_url=$10, cabinet_link=$11, is_active=$12, is_online=$13,
+		     event_type=$14, check_in_mode=$15,
+		     registration_opens_at=$16, registration_closes_at=$17,
+		     badge_template_id=$18, max_scans_per_ticket=$19,
 		     updated_at=NOW()
-		 WHERE id=$13`,
+		 WHERE id=$20`,
 		req.Title, req.Description, req.EventDate, req.EventTime,
-		req.StartAt, req.Venue, req.Address, req.Capacity,
-		req.CoverURL, req.CabinetLink, req.IsActive, req.IsOnline, id,
+		req.StartAt, req.EndAt, req.Venue, req.Address, req.Capacity,
+		req.CoverURL, req.CabinetLink, req.IsActive, req.IsOnline,
+		et, ci,
+		req.RegistrationOpensAt, req.RegistrationClosesAt,
+		req.BadgeTemplateID, ms, id,
 	)
 	if err != nil {
 		return fmt.Errorf("event Update: %w", err)

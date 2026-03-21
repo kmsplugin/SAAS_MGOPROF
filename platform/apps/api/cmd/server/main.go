@@ -36,6 +36,7 @@ func main() {
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(5 * time.Minute)
+	defer db.Close() //nolint:errcheck
 
 	// ── Repositories ──────────────────────────────────────────────────────────
 	tenantRepo := repository.NewTenantRepository(db)

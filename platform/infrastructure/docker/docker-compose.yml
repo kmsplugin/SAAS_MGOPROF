@@ -56,6 +56,21 @@ services:
       - livekit
     network_mode: host
 
+  # ── Database Migrations ────────────────────────────────────────────────────
+
+  migrate:
+    image: migrate/migrate:v4.17.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../../migrations/public:/migrations:ro
+    command: >
+      -path=/migrations
+      -database=postgres://platform:platform_secret@postgres:5432/platform?sslmode=disable
+      up
+    restart: on-failure
+
   # ── Platform API (Go) ──────────────────────────────────────────────────────
 
   api:
@@ -79,6 +94,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   # ── Media Service (Go + LiveKit SDK) ──────────────────────────────────────
 

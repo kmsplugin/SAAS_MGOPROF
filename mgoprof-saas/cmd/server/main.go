@@ -58,6 +58,8 @@ func main() {
 	consentRepo  := repository.NewConsentRepository(db)
 	questionRepo := repository.NewQuestionRepository(db)
 	adminRepo    := repository.NewAdminRepository(db)
+	scanRepo     := repository.NewScanRepository(db)
+	refListRepo  := repository.NewRefListRepository(db)
 
 	// ── Mailer (async worker pool — 5 workers, buffer 500 jobs) ──────────────
 	// Workers drain the channel concurrently so HTTP handlers never block on SMTP.
@@ -89,6 +91,7 @@ func main() {
 	reportSvc   := service.NewReportService(reportRepo, eventRepo, logger)
 	trackingSvc := service.NewTrackingService(trackingRepo, regRepo, geo, logger)
 	ticketSvc   := service.NewTicketService(regRepo, eventRepo, userRepo, logger, cfg.SiteURL)
+	scanSvc     := service.NewScanService(scanRepo, eventRepo, logger)
 
 	// ── Bootstrap super_admin from env vars (idempotent) ─────────────────────
 	adminSvc.BootstrapSuperAdmin(context.Background())
@@ -102,8 +105,10 @@ func main() {
 	trackingHandler   := handler.NewTrackingHandler(trackingSvc, logger)
 	fieldHandler      := handler.NewFieldHandler(fieldSvc, logger)
 	ticketHandler     := handler.NewTicketHandler(ticketSvc, logger)
-	questionHandler   := handler.NewQuestionHandler(questionRepo, mail, logger, cfg.SiteURL)
-	superAdminHandler := handler.NewSuperAdminHandler(adminRepo, logger)
+	questionHandler    := handler.NewQuestionHandler(questionRepo, mail, logger, cfg.SiteURL)
+	superAdminHandler  := handler.NewSuperAdminHandler(adminRepo, logger)
+	attendanceHandler  := handler.NewAttendanceHandler(scanSvc, logger)
+	refListHandler     := handler.NewRefListHandler(refListRepo, logger)
 
 	// ── Router ────────────────────────────────────────────────────────────────
 	if os.Getenv("GIN_MODE") == "" {
@@ -173,6 +178,12 @@ func main() {
 
 		// Super admin: admin user management + audit logs
 		superAdminHandler.RegisterRoutes(api, authMW)
+
+		// QR scan / attendance tracking
+		attendanceHandler.RegisterRoutes(api, authMW)
+
+		// Reference lists (справочники) — public items + admin CRUD
+		refListHandler.RegisterRoutes(api, authMW)
 	}
 
 	srv := &http.Server{

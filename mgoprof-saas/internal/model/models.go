@@ -402,6 +402,119 @@ type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
+// ── Scan & Attendance models ──────────────────────────────────────────────────
+
+// ScanLog represents one QR scan attempt (immutable audit).
+type ScanLog struct {
+	ID             int64      `db:"id"              json:"id"`
+	EventID        int        `db:"event_id"        json:"event_id"`
+	RegistrationID *int       `db:"registration_id" json:"registration_id,omitempty"`
+	ScannedToken   string     `db:"scanned_token"   json:"scanned_token"`
+	ScanMode       string     `db:"scan_mode"       json:"scan_mode"`   // entry|exit|verify
+	ScanResult     string     `db:"scan_result"     json:"scan_result"` // ok|duplicate|not_found|wrong_event|cancelled|error
+	OperatorID     *int       `db:"operator_id"     json:"operator_id,omitempty"`
+	DeviceInfo     string     `db:"device_info"     json:"device_info"`
+	IPAddress      string     `db:"ip_address"      json:"ip_address"`
+	Note           string     `db:"note"            json:"note"`
+	ScannedAt      time.Time  `db:"scanned_at"      json:"scanned_at"`
+}
+
+// AttendanceEvent records a single entry or exit action.
+type AttendanceEvent struct {
+	ID             int64     `db:"id"              json:"id"`
+	EventID        int       `db:"event_id"        json:"event_id"`
+	RegistrationID int       `db:"registration_id" json:"registration_id"`
+	Action         string    `db:"action"          json:"action"` // entry|exit
+	ScanLogID      *int64    `db:"scan_log_id"     json:"scan_log_id,omitempty"`
+	OccurredAt     time.Time `db:"occurred_at"     json:"occurred_at"`
+}
+
+// RegistrationStatusLog records every status FSM transition.
+type RegistrationStatusLog struct {
+	ID             int64     `db:"id"              json:"id"`
+	RegistrationID int       `db:"registration_id" json:"registration_id"`
+	EventID        int       `db:"event_id"        json:"event_id"`
+	PrevStatus     string    `db:"prev_status"     json:"prev_status"`
+	NewStatus      string    `db:"new_status"      json:"new_status"`
+	ChangedBy      *int      `db:"changed_by"      json:"changed_by,omitempty"`
+	ChangeSource   string    `db:"change_source"   json:"change_source"` // system|admin|scanner|api|user
+	Note           string    `db:"note"            json:"note"`
+	ChangedAt      time.Time `db:"changed_at"      json:"changed_at"`
+}
+
+// ScanRequest is the body for POST /admin/events/:id/scan.
+type ScanRequest struct {
+	Token    string `json:"token"     binding:"required"`
+	Mode     string `json:"mode"      binding:"required,oneof=entry exit verify"`
+	DeviceInfo string `json:"device_info"`
+}
+
+// ScanResponse is returned after a scan attempt.
+type ScanResponse struct {
+	Result         string       `json:"result"` // ok|duplicate|not_found|wrong_event|cancelled|error
+	Message        string       `json:"message"`
+	Registration   *Registration `json:"registration,omitempty"`
+	User           *User         `json:"user,omitempty"`
+	StatusExtended string        `json:"status_extended,omitempty"`
+	ScanCount      int           `json:"scan_count,omitempty"`
+}
+
+// ── Reference list models ─────────────────────────────────────────────────────
+
+// RefList represents a managed dropdown list.
+type RefList struct {
+	ID          int        `db:"id"          json:"id"`
+	Slug        string     `db:"slug"        json:"slug"`
+	Title       string     `db:"title"       json:"title"`
+	Description string     `db:"description" json:"description"`
+	IsActive    bool       `db:"is_active"   json:"is_active"`
+	CreatedAt   time.Time  `db:"created_at"  json:"created_at"`
+	UpdatedAt   *time.Time `db:"updated_at"  json:"updated_at,omitempty"`
+}
+
+// RefListItem is a single entry in a reference list.
+type RefListItem struct {
+	ID        int    `db:"id"         json:"id"`
+	ListID    int    `db:"list_id"    json:"list_id"`
+	Value     string `db:"value"      json:"value"`
+	Label     string `db:"label"      json:"label"`
+	SortOrder int    `db:"sort_order" json:"sort_order"`
+	IsActive  bool   `db:"is_active"  json:"is_active"`
+}
+
+// ── Badge template models ─────────────────────────────────────────────────────
+
+// BadgeTemplate stores a per-event badge design.
+type BadgeTemplate struct {
+	ID            int        `db:"id"             json:"id"`
+	EventID       *int       `db:"event_id"       json:"event_id,omitempty"`
+	Name          string     `db:"name"           json:"name"`
+	IsDefault     bool       `db:"is_default"     json:"is_default"`
+	AccentColor   string     `db:"accent_color"   json:"accent_color"`
+	LogoURL       string     `db:"logo_url"       json:"logo_url"`
+	BackgroundURL string     `db:"background_url" json:"background_url"`
+	PaperSize     string     `db:"paper_size"     json:"paper_size"`
+	Orientation   string     `db:"orientation"    json:"orientation"`
+	HTMLTemplate  string     `db:"html_template"  json:"html_template"`
+	FieldsConfig  []byte     `db:"fields_config"  json:"fields_config"` // JSONB
+	CreatedAt     time.Time  `db:"created_at"     json:"created_at"`
+	UpdatedAt     *time.Time `db:"updated_at"     json:"updated_at,omitempty"`
+}
+
+// CreateRefListRequest is the body for POST /admin/reflists.
+type CreateRefListRequest struct {
+	Slug        string `json:"slug"        binding:"required"`
+	Title       string `json:"title"       binding:"required"`
+	Description string `json:"description"`
+}
+
+// CreateRefListItemRequest is the body for POST /admin/reflists/:id/items.
+type CreateRefListItemRequest struct {
+	Value     string `json:"value"      binding:"required"`
+	Label     string `json:"label"      binding:"required"`
+	SortOrder int    `json:"sort_order"`
+}
+
 // ── Admin / RBAC models ───────────────────────────────────────────────────────
 
 // AdminUser represents an admin_users row.

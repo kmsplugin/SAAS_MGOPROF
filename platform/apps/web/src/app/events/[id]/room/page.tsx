@@ -72,6 +72,7 @@ export default function RoomPage() {
       roomName={joinData.roomName}
       participantRole={resolveRole(user?.role ?? 'participant')}
       displayName={displayName}
+      eventId={eventId}
       onLeave={() => router.push(`/events/${eventId}`)}
     />
   )

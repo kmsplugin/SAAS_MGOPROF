@@ -16,6 +16,7 @@ import { Track } from 'livekit-client'
 import { useState, useCallback } from 'react'
 import { Mic, MicOff, Video, VideoOff, PhoneOff, Users, MessageSquare, Hand } from 'lucide-react'
 import type { ParticipantRole } from '@platform/types'
+import { QAPanel } from './qa-panel'
 
 interface EventRoomProps {
   token: string
@@ -23,6 +24,7 @@ interface EventRoomProps {
   roomName: string
   participantRole: ParticipantRole
   displayName: string
+  eventId?: string
   onLeave?: () => void
 }
 
@@ -40,6 +42,7 @@ export function EventRoom({
   roomName,
   participantRole,
   displayName,
+  eventId,
   onLeave,
 }: EventRoomProps) {
   const isPublisher = participantRole === 'host' || participantRole === 'speaker' || participantRole === 'co_host'
@@ -57,9 +60,9 @@ export function EventRoom({
     >
       <RoomAudioRenderer />
       {isPublisher ? (
-        <PublisherView displayName={displayName} onLeave={onLeave} />
+        <PublisherView displayName={displayName} participantRole={participantRole} eventId={eventId} lkToken={token} onLeave={onLeave} />
       ) : (
-        <ViewerView participantRole={participantRole} onLeave={onLeave} />
+        <ViewerView participantRole={participantRole} eventId={eventId} lkToken={token} onLeave={onLeave} />
       )}
     </LiveKitRoom>
   )
@@ -67,8 +70,27 @@ export function EventRoom({
 
 // ── Publisher view (host / speaker) ──────────────────────────────────────────
 
-function PublisherView({ displayName, onLeave }: { displayName: string; onLeave?: () => void }) {
-  const [showParticipants, setShowParticipants] = useState(false)
+type Sidebar = 'participants' | 'qa' | null
+
+function PublisherView({
+  displayName,
+  participantRole,
+  eventId,
+  lkToken,
+  onLeave,
+}: {
+  displayName: string
+  participantRole: ParticipantRole
+  eventId?: string
+  lkToken: string
+  onLeave?: () => void
+}) {
+  const [sidebar, setSidebar] = useState<Sidebar>(null)
+  const isHost = participantRole === 'host' || participantRole === 'co_host'
+
+  function toggleSidebar(panel: Sidebar) {
+    setSidebar((v) => (v === panel ? null : panel))
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -82,17 +104,20 @@ function PublisherView({ displayName, onLeave }: { displayName: string; onLeave?
         </span>
         <div className="flex items-center gap-2">
           <LiveIndicator />
-          <button
-            onClick={() => setShowParticipants((v) => !v)}
-            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors"
-            style={{
-              color: 'var(--room-text-muted)',
-              backgroundColor: showParticipants ? 'var(--room-surface-hover)' : 'transparent',
-            }}
-          >
-            <Users size={14} />
-            Участники
-          </button>
+          <SidebarToggle
+            icon={<Users size={14} />}
+            label="Участники"
+            active={sidebar === 'participants'}
+            onClick={() => toggleSidebar('participants')}
+          />
+          {eventId && (
+            <SidebarToggle
+              icon={<MessageSquare size={14} />}
+              label="Q&A"
+              active={sidebar === 'qa'}
+              onClick={() => toggleSidebar('qa')}
+            />
+          )}
         </div>
       </div>
 
@@ -101,7 +126,12 @@ function PublisherView({ displayName, onLeave }: { displayName: string; onLeave?
         <div className="flex-1">
           <VideoConference />
         </div>
-        {showParticipants && <ParticipantSidebar />}
+        {sidebar === 'participants' && <ParticipantSidebar />}
+        {sidebar === 'qa' && eventId && (
+          <div className="w-80 border-l" style={{ borderColor: 'var(--room-border)' }}>
+            <QAPanel token={lkToken} eventId={eventId} isHost={isHost} />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -111,25 +141,37 @@ function PublisherView({ displayName, onLeave }: { displayName: string; onLeave?
 
 function ViewerView({
   participantRole,
+  eventId,
+  lkToken,
   onLeave,
 }: {
   participantRole: ParticipantRole
+  eventId?: string
+  lkToken: string
   onLeave?: () => void
 }) {
+  const [showQA, setShowQA] = useState(false)
   const tracks = useTracks([Track.Source.Camera, Track.Source.ScreenShare], {
     onlySubscribed: true,
   })
 
   return (
     <div className="flex h-full flex-col room-bg">
-      {/* Stage area */}
-      <div className="flex flex-1 items-center justify-center overflow-hidden p-4">
-        {tracks.length > 0 ? (
-          <TrackLoop tracks={tracks}>
-            <ParticipantTile className="max-h-full max-w-full rounded-xl overflow-hidden" />
-          </TrackLoop>
-        ) : (
-          <EmptyStage />
+      {/* Stage + optional Q&A sidebar */}
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 items-center justify-center overflow-hidden p-4">
+          {tracks.length > 0 ? (
+            <TrackLoop tracks={tracks}>
+              <ParticipantTile className="max-h-full max-w-full rounded-xl overflow-hidden" />
+            </TrackLoop>
+          ) : (
+            <EmptyStage />
+          )}
+        </div>
+        {showQA && eventId && (
+          <div className="w-80 border-l shrink-0" style={{ borderColor: 'var(--room-border)' }}>
+            <QAPanel token={lkToken} eventId={eventId} isHost={false} />
+          </div>
         )}
       </div>
 
@@ -146,6 +188,14 @@ function ViewerView({
             Модератор
           </span>
         )}
+        {eventId && (
+          <SidebarToggle
+            icon={<MessageSquare size={14} />}
+            label="Q&A"
+            active={showQA}
+            onClick={() => setShowQA((v) => !v)}
+          />
+        )}
         <button
           onClick={onLeave}
           className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
@@ -160,6 +210,32 @@ function ViewerView({
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function SidebarToggle({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors"
+      style={{
+        color: active ? 'var(--room-brand)' : 'var(--room-text-muted)',
+        backgroundColor: active ? 'var(--room-brand-dim)' : 'transparent',
+      }}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
 
 function LiveIndicator() {
   return (

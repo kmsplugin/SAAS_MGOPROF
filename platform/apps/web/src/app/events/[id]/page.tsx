@@ -7,14 +7,17 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
 import { formatDate, eventTypeLabel, eventStatusLabel } from '@/lib/utils'
+import { Settings, Zap } from 'lucide-react'
 
 export default function EventDetailPage() {
   const router = useRouter()
   const params = useParams()
   const eventId = params.id as string
-  const { token } = useAuthStore()
+  const { token, user } = useAuthStore()
   const [registered, setRegistered] = useState(false)
   const [regError, setRegError] = useState('')
+
+  const isAdmin = user?.role && ['event_admin', 'tenant_owner', 'super_admin'].includes(user.role)
 
   useEffect(() => {
     if (!token) router.push('/login')
@@ -62,9 +65,31 @@ export default function EventDetailPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <div className="max-w-4xl mx-auto px-6 py-12">
-        <Link href="/events" className="text-gray-400 hover:text-white text-sm mb-6 inline-block">
-          ← Все мероприятия
-        </Link>
+        <div className="flex items-center justify-between mb-6">
+          <Link href="/events" className="text-gray-400 hover:text-white text-sm">
+            ← Все мероприятия
+          </Link>
+          <div className="flex items-center gap-3">
+            {event.status === 'ended' && (
+              <Link
+                href={`/events/${eventId}/ai`}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-purple-600/10 hover:bg-purple-600/20 border border-purple-600/20 text-purple-400 transition-colors"
+              >
+                <Zap size={12} />
+                AI-анализ
+              </Link>
+            )}
+            {isAdmin && (
+              <Link
+                href={`/dashboard/events/${eventId}/edit`}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 transition-colors"
+              >
+                <Settings size={12} />
+                Управление
+              </Link>
+            )}
+          </div>
+        </div>
 
         <div className="flex flex-wrap items-center gap-3 mb-6">
           <span className="text-sm bg-white/5 border border-white/10 rounded-full px-3 py-1 text-gray-400">

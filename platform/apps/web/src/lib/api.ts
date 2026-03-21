@@ -95,4 +95,40 @@ export const apiClient = {
 
   endRoom: (token: string, roomId: string) =>
     request<{ status: string }>(`/rooms/${roomId}`, token, { method: 'DELETE' }),
+
+  updateEvent: (token: string, id: string, body: Record<string, unknown>) =>
+    request<{ event: Record<string, unknown> }>(
+      `/events/${id}`, token, { method: 'PUT', body: JSON.stringify(body) }
+    ),
+
+  // Q&A
+  listQuestions: (token: string, eventId: string) =>
+    request<{ questions: Record<string, unknown>[] }>(`/events/${eventId}/questions`, token),
+
+  createQuestion: (token: string, eventId: string, text: string) =>
+    request<{ question: Record<string, unknown> }>(
+      `/events/${eventId}/questions`, token, {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      }
+    ),
+
+  listMessages: (token: string, eventId: string, questionId: string) =>
+    request<{ messages: Record<string, unknown>[] }>(
+      `/events/${eventId}/questions/${questionId}/messages`, token
+    ),
+
+  addMessage: (token: string, eventId: string, questionId: string, text: string) =>
+    request<{ message: Record<string, unknown> }>(
+      `/events/${eventId}/questions/${questionId}/messages`, token, {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      }
+    ),
+
+  // AI
+  getAISummaries: (token: string, eventId: string) =>
+    request<{ summaries: Record<string, Record<string, unknown>> }>(
+      `/events/${eventId}/ai`, token
+    ),
 }

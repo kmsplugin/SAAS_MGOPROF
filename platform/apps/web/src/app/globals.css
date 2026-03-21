@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens ────────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    /* Brand */
+    --color-brand-50:  #f0fdf4;
+    --color-brand-100: #dcfce7;
+    --color-brand-200: #bbf7d0;
+    --color-brand-500: #22c55e;
+    --color-brand-600: #16a34a;
+    --color-brand-700: #15803d;
+    --color-brand-900: #14532d;
+
+    /* Surface (light) */
+    --color-surface:          #ffffff;
+    --color-surface-muted:    #f8fafc;
+    --color-surface-subtle:   #f1f5f9;
+    --color-surface-overlay:  rgba(0, 0, 0, 0.04);
+
+    /* Text (light) */
+    --color-text-primary:   #0f172a;
+    --color-text-secondary: #475569;
+    --color-text-muted:     #94a3b8;
+    --color-text-inverted:  #ffffff;
+
+    /* Border */
+    --color-border:       #e2e8f0;
+    --color-border-focus: #22c55e;
+
+    /* Status */
+    --color-success: #16a34a;
+    --color-warning: #d97706;
+    --color-error:   #dc2626;
+    --color-info:    #2563eb;
+
+    /* Shadows */
+    --shadow-sm:  0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md:  0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+    --shadow-lg:  0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+    --shadow-xl:  0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+
+    /* Room — always dark regardless of theme */
+    --room-bg:           #0f0f14;
+    --room-surface:      #1a1a24;
+    --room-surface-hover: #22222e;
+    --room-border:       rgba(255, 255, 255, 0.08);
+    --room-text:         #f1f5f9;
+    --room-text-muted:   #94a3b8;
+    --room-brand:        #22c55e;
+    --room-brand-dim:    rgba(34, 197, 94, 0.15);
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-surface text-text-primary antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Focus visible ring */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2;
+  }
+}
+
+/* ── Utility classes ──────────────────────────────────────────────────────── */
+@layer utilities {
+  .bg-surface         { background-color: var(--color-surface); }
+  .bg-surface-muted   { background-color: var(--color-surface-muted); }
+  .bg-surface-subtle  { background-color: var(--color-surface-subtle); }
+  .text-text-primary  { color: var(--color-text-primary); }
+  .text-text-secondary { color: var(--color-text-secondary); }
+  .text-text-muted    { color: var(--color-text-muted); }
+  .border-border      { border-color: var(--color-border); }
+
+  /* Room-specific */
+  .room-bg            { background-color: var(--room-bg); }
+  .room-surface       { background-color: var(--room-surface); }
+  .room-text          { color: var(--room-text); }
+  .room-border        { border-color: var(--room-border); }
+}
+
+/* ── LiveKit overrides (keep room controls on-brand) ─────────────────────── */
+[data-lk-theme] {
+  --lk-color-primary:      var(--room-brand);
+  --lk-color-bg:           var(--room-bg);
+  --lk-color-bg2:          var(--room-surface);
+  --lk-color-fg:           var(--room-text);
+  --lk-border-radius:      0.5rem;
+}

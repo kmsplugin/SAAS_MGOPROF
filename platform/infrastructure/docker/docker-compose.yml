@@ -1,0 +1,118 @@
+version: '3.9'
+
+services:
+  # ── Infrastructure ────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform_secret
+      POSTGRES_DB: platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  # ── LiveKit Server ─────────────────────────────────────────────────────────
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev --bind 0.0.0.0
+    ports:
+      - "7880:7880"   # HTTP / WebSocket
+      - "7881:7881"   # RTCP
+      - "7882:7882/udp"
+    environment:
+      - LIVEKIT_KEYS=devkey:devsecret
+
+  # ── LiveKit Egress (recording, HLS, RTMP out) ──────────────────────────────
+
+  egress:
+    image: livekit/egress:latest
+    environment:
+      EGRESS_CONFIG_FILE: /etc/livekit/egress.yaml
+    volumes:
+      - ./egress.yaml:/etc/livekit/egress.yaml:ro
+      - egress_data:/out
+    depends_on:
+      - livekit
+    network_mode: host
+
+  # ── Platform API (Go) ──────────────────────────────────────────────────────
+
+  api:
+    build:
+      context: ../../apps/api
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://platform:platform_secret@postgres:5432/platform?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev_jwt_secret_min_32_chars_here_ok
+      SITE_URL: http://localhost:3000
+      ADMIN_EMAIL: admin@platform.local
+      ADMIN_NAME: Администратор
+      LIVEKIT_HOST: ws://livekit:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: devsecret
+      MEDIA_SERVICE_URL: http://media-service:8010
+      MEDIA_SERVICE_TOKEN: dev_internal_token
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Media Service (Go + LiveKit SDK) ──────────────────────────────────────
+
+  media-service:
+    build:
+      context: ../../apps/media-service
+      dockerfile: Dockerfile
+    ports:
+      - "8010:8010"
+    environment:
+      LIVEKIT_HOST: ws://livekit:7880
+      LIVEKIT_URL: ws://localhost:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: devsecret
+      MEDIA_SERVICE_TOKEN: dev_internal_token
+    depends_on:
+      - livekit
+
+  # ── Web Frontend (Next.js) ────────────────────────────────────────────────
+
+  web:
+    build:
+      context: ../../apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080/api
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  redis_data:
+  egress_data:

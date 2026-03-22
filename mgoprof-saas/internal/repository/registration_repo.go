@@ -189,6 +189,17 @@ const regRowSelectSQL = `
 	INNER JOIN reg_events e ON e.id = r.event_id
 	INNER JOIN reg_users  u ON u.id = r.user_id`
 
+// ListByEvent returns all registrations for a specific event (admin view).
+func (r *RegistrationRepository) ListByEvent(ctx context.Context, eventID int) ([]model.RegistrationRow, error) {
+	var rows []model.RegistrationRow
+	err := r.db.SelectContext(ctx, &rows,
+		regRowSelectSQL+` WHERE r.event_id = $1 ORDER BY r.created_at DESC`, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("reg ListByEvent: %w", err)
+	}
+	return rows, nil
+}
+
 // ListAll returns all registrations joined with events and users (for admin).
 func (r *RegistrationRepository) ListAll(ctx context.Context) ([]model.RegistrationRow, error) {
 	var rows []model.RegistrationRow

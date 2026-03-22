@@ -109,6 +109,10 @@ func main() {
 	superAdminHandler  := handler.NewSuperAdminHandler(adminRepo, logger)
 	attendanceHandler  := handler.NewAttendanceHandler(scanSvc, logger)
 	refListHandler     := handler.NewRefListHandler(refListRepo, logger)
+	adminPanelHandler  := handler.NewAdminPanelHandler(
+		eventRepo, regRepo, fieldSvc, refListRepo,
+		scanSvc, trackingSvc, adminSvc, logger,
+	)
 
 	// ── Router ────────────────────────────────────────────────────────────────
 	if os.Getenv("GIN_MODE") == "" {
@@ -159,9 +163,12 @@ func main() {
 		adminRoleMW := middleware.RequireRole("admin", "super_admin")
 		trackingHandler.RegisterRoutes(api, authMW, authMW, adminRoleMW)
 
-		// Admin auth (rate-limited) + admin panel
+		// Admin auth (rate-limited) + JSON API
 		api.POST("/admin/login",      adminLoginLimiter.Limit(), adminHandler.Login)
 		api.POST("/admin/verify-otp", otpLimiter.Limit(),        adminHandler.VerifyOTP)
+
+		// Admin HTML panel (server-side rendered pages)
+		adminPanelHandler.RegisterRoutes(api, authMW)
 		adminHandler.RegisterProtectedRoutes(api, authMW)
 
 		// Admin Q&A moderation

@@ -77,6 +77,11 @@ func (s *AuthService) Login(ctx context.Context, req model.LoginRequest, ip, use
 		return "", nil, fmt.Errorf("выпуск токена: %w", err)
 	}
 
+	// Record first/last login timestamps for the admin participant timeline.
+	if err := s.userRepo.RecordLogin(ctx, user.ID); err != nil {
+		s.logger.Warn("record login failed", zap.String("email", email), zap.Error(err))
+	}
+
 	_ = s.logRepo.Write(ctx, "cabinet_login_success", email, ip, "logged in", userAgent)
 	return token, user, nil
 }

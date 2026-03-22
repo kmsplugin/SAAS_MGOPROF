@@ -510,32 +510,32 @@ async function submitForm(e) {
   <div class="bg-white rounded-xl shadow-sm border overflow-x-auto">
     <table class="table-auto w-full text-sm border-collapse">
       <thead><tr>
-        <th class="text-left">Дата рег.</th>
-        <th class="text-left">Верифицирован</th>
+        <th class="text-left">Рег.</th>
+        <th class="text-left">OTP отправлен</th>
+        <th class="text-left">OTP подтверждён</th>
+        <th class="text-left">Письмо с паролем</th>
         {{if not .EventTitle}}<th class="text-left">Мероприятие</th>{{end}}
         <th class="text-left">Участник</th>
         <th class="text-left">Email</th>
         <th class="text-left">Организация</th>
         <th class="text-left">Округ</th>
-        <th class="text-left">Роль</th>
-        <th class="text-left">Устройство</th>
         <th class="text-left">Статус</th>
         <th class="text-left">Чекин</th>
       </tr></thead>
       <tbody>
       {{range .Registrations}}
-      <tr class="border-t">
-        <td class="text-gray-500">{{fmtTime .RegDatetime}}</td>
-        <td class="text-gray-500">{{fmtTimePtr .OTPVerifiedAt}}</td>
+      <tr class="border-t text-sm">
+        <td class="text-gray-500 whitespace-nowrap">{{fmtTime .RegDatetime}}</td>
+        <td class="text-gray-500 whitespace-nowrap">{{fmtTimePtr .OTPSentAt}}</td>
+        <td class="text-gray-500 whitespace-nowrap">{{fmtTimePtr .OTPVerifiedAt}}</td>
+        <td class="text-gray-500 whitespace-nowrap">{{fmtTimePtr .WelcomeEmailSentAt}}</td>
         {{if not $.EventTitle}}<td>{{.EventTitle}}</td>{{end}}
-        <td class="font-medium">{{.LastName}} {{.FirstName}} {{.Patronymic}}</td>
+        <td class="font-medium">{{.LastName}} {{.FirstName}}</td>
         <td class="text-gray-500">{{.Email}}</td>
         <td class="text-gray-500">{{.Organization}}</td>
         <td class="text-gray-500">{{.District}}</td>
-        <td>{{statusBadge .StatusExtended}}</td>
-        <td class="text-gray-400 text-xs">{{.DeviceType}} / {{.OSName}} / {{.BrowserName}}</td>
         <td>{{statusBadge .Status}}</td>
-        <td class="text-gray-500">{{fmtTimePtr .CheckedInAt}}</td>
+        <td class="text-gray-500 whitespace-nowrap">{{fmtTimePtr .CheckedInAt}}</td>
       </tr>
       {{else}}<tr><td colspan="11" class="text-center text-gray-400 py-8">Регистраций нет</td></tr>
       {{end}}
@@ -727,10 +727,12 @@ async function submitForm(e) {
     </span>
   </div>
 
-  {{if eq .Event.EventType "online"}}
-  {{/* Online: stream_connect / stream_disconnect counters */}}
-  <p class="text-xs text-gray-400 mb-4 uppercase tracking-wide">Присутствие считается по событиям трекинга stream_connect / stream_disconnect</p>
-  <div class="grid grid-cols-3 gap-4 mb-8">
+  {{/* Online channel — shown for online and hybrid */}}
+  {{if or (eq .Event.EventType "online") (eq .Event.EventType "hybrid")}}
+  <h2 class="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">
+    Онлайн-канал <span class="font-normal normal-case text-gray-400">stream_connect / stream_disconnect</span>
+  </h2>
+  <div class="grid grid-cols-3 gap-4 mb-6">
     <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
       <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Подключений</p>
       <p class="text-4xl font-bold text-green-600">{{.StreamConnects}}</p>
@@ -744,10 +746,14 @@ async function submitForm(e) {
       <p class="text-4xl font-bold text-blue-600">{{.OnlineActive}}</p>
     </div>
   </div>
-  {{else}}
-  {{/* Offline / hybrid: QR scan check_in / check_out counters */}}
-  <p class="text-xs text-gray-400 mb-4 uppercase tracking-wide">Присутствие считается по QR-сканированиям check_in / check_out</p>
-  <div class="grid grid-cols-3 gap-4 mb-8">
+  {{end}}
+
+  {{/* Offline channel — shown for offline and hybrid */}}
+  {{if ne .Event.EventType "online"}}
+  <h2 class="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">
+    Очный канал <span class="font-normal normal-case text-gray-400">QR check_in / check_out</span>
+  </h2>
+  <div class="grid grid-cols-3 gap-4 mb-6">
     <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
       <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Вошли</p>
       <p class="text-4xl font-bold text-green-600">{{.Entries}}</p>

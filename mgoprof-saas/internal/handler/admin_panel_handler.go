@@ -348,9 +348,8 @@ func (h *AdminPanelHandler) AttendancePage(c *gin.Context) {
 		Event:    event,
 	}
 
-	if event.EventType == "online" {
-		// For online events, count stream_connect / stream_disconnect tracking events.
-		// Present = connects − disconnects (floor 0).
+	// Online and hybrid events: count stream tracking events.
+	if event.EventType == "online" || event.EventType == "hybrid" {
 		tracking, _ := h.trackingSvc.ListByEvent(c.Request.Context(), id)
 		for _, t := range tracking {
 			switch t.Action {
@@ -364,8 +363,10 @@ func (h *AdminPanelHandler) AttendancePage(c *gin.Context) {
 		if data.OnlineActive < 0 {
 			data.OnlineActive = 0
 		}
-	} else {
-		// For offline/hybrid events, use QR scan check_in / check_out counts.
+	}
+
+	// Offline and hybrid events: count QR scan check_in / check_out.
+	if event.EventType != "online" {
 		data.Entries, data.Exits, data.Present, _ = h.scanSvc.GetAttendanceSummary(context.Background(), id)
 	}
 

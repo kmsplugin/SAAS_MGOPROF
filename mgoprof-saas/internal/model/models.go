@@ -117,10 +117,12 @@ type User struct {
 	GeoRegion         string     `db:"geo_region"           json:"geo_region"`
 	GeoCity           string     `db:"geo_city"             json:"geo_city"`
 	UserAgent         string     `db:"user_agent"           json:"-"`
-	PasswordHash      string     `db:"password_hash"        json:"-"`
-	PasswordUpdatedAt *time.Time `db:"password_updated_at"  json:"-"`
-	CreatedAt         time.Time  `db:"created_at"           json:"created_at"`
-	UpdatedAt         *time.Time `db:"updated_at"           json:"-"`
+	PasswordHash      string     `db:"password_hash"         json:"-"`
+	PasswordUpdatedAt *time.Time `db:"password_updated_at"   json:"-"`
+	CabinetFirstLoginAt *time.Time `db:"cabinet_first_login_at" json:"cabinet_first_login_at,omitempty"`
+	CabinetLastLoginAt  *time.Time `db:"cabinet_last_login_at"  json:"cabinet_last_login_at,omitempty"`
+	CreatedAt         time.Time  `db:"created_at"            json:"created_at"`
+	UpdatedAt         *time.Time `db:"updated_at"            json:"-"`
 }
 
 // Registration represents a reg_registrations row.
@@ -130,9 +132,11 @@ type Registration struct {
 	UserID           int        `db:"user_id"           json:"user_id"`
 	OTPCode          string     `db:"otp_code"          json:"-"`
 	OTPExpiresAt     time.Time  `db:"otp_expires_at"    json:"-"`
-	OTPSentAt        *time.Time `db:"otp_sent_at"       json:"-"`
-	OTPVerifiedAt    *time.Time `db:"otp_verified_at"   json:"otp_verified_at,omitempty"`
-	Status           string     `db:"status"            json:"status"`
+	OTPSentAt           *time.Time `db:"otp_sent_at"            json:"-"`
+	OTPSendCount        int        `db:"otp_send_count"         json:"-"`
+	OTPVerifiedAt       *time.Time `db:"otp_verified_at"        json:"otp_verified_at,omitempty"`
+	WelcomeEmailSentAt  *time.Time `db:"welcome_email_sent_at"  json:"welcome_email_sent_at,omitempty"`
+	Status              string     `db:"status"                 json:"status"`
 	IPAddress        string     `db:"ip_address"        json:"-"`
 	GeoCountry       string     `db:"geo_country"       json:"geo_country"`
 	GeoRegion        string     `db:"geo_region"        json:"geo_region"`
@@ -213,9 +217,11 @@ type RegistrationRow struct {
 	Status         string     `db:"status"           json:"status"`
 	StatusExtended string     `db:"status_extended"  json:"status_extended"`
 	ScanCount      int        `db:"scan_count"       json:"scan_count"`
-	OTPSentAt      *time.Time `db:"otp_sent_at"      json:"otp_sent_at,omitempty"`
-	OTPVerifiedAt  *time.Time `db:"otp_verified_at"  json:"otp_verified_at,omitempty"`
-	CheckedInAt    *time.Time `db:"checked_in_at"    json:"checked_in_at,omitempty"`
+	OTPSentAt          *time.Time `db:"otp_sent_at"           json:"otp_sent_at,omitempty"`
+	OTPSendCount       int        `db:"otp_send_count"        json:"otp_send_count"`
+	OTPVerifiedAt      *time.Time `db:"otp_verified_at"       json:"otp_verified_at,omitempty"`
+	WelcomeEmailSentAt *time.Time `db:"welcome_email_sent_at" json:"welcome_email_sent_at,omitempty"`
+	CheckedInAt        *time.Time `db:"checked_in_at"         json:"checked_in_at,omitempty"`
 	FirstEntryAt   *time.Time `db:"first_entry_at"   json:"first_entry_at,omitempty"`
 	LastExitAt     *time.Time `db:"last_exit_at"     json:"last_exit_at,omitempty"`
 }

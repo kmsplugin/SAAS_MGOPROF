@@ -69,10 +69,10 @@ func (r *RegistrationRepository) CreateTx(
 	var id int
 	err := tx.QueryRowContext(ctx,
 		`INSERT INTO reg_registrations
-			(event_id, user_id, otp_code, otp_expires_at, otp_sent_at, status,
+			(event_id, user_id, otp_code, otp_expires_at, otp_sent_at, otp_send_count, status,
 			 ip_address, geo_country, geo_region, geo_city,
 			 isp_name, isp_asn, device_type, os_name, browser_name)
-		 VALUES ($1,$2,$3,$4,NOW(),'pending',$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		 VALUES ($1,$2,$3,$4,NOW(),1,'pending',$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		 RETURNING id`,
 		eventID, userID, otp, expiresAt, ip,
 		geo.Country, geo.Region, geo.City,
@@ -98,7 +98,8 @@ func (r *RegistrationRepository) UpdateOTPTx(
 ) error {
 	_, err := tx.ExecContext(ctx,
 		`UPDATE reg_registrations
-		 SET otp_code=$1, otp_expires_at=$2, otp_sent_at=NOW(), otp_verified_at=NULL,
+		 SET otp_code=$1, otp_expires_at=$2, otp_sent_at=NOW(),
+		     otp_send_count = otp_send_count + 1, otp_verified_at=NULL,
 		     status='pending', ip_address=$3, geo_country=$4, geo_region=$5, geo_city=$6,
 		     isp_name=$7, isp_asn=$8, device_type=$9, os_name=$10, browser_name=$11,
 		     updated_at=NOW()
@@ -126,6 +127,17 @@ func (r *RegistrationRepository) SetVerified(ctx context.Context, id int, token 
 	)
 	if err != nil {
 		return fmt.Errorf("reg SetVerified: %w", err)
+	}
+	return nil
+}
+
+// SetWelcomeEmailSent records when the welcome email (with credentials) was sent.
+// Called after a successful SendWelcome to complete the admin timeline.
+func (r *RegistrationRepository) SetWelcomeEmailSent(ctx context.Context, id int) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE reg_registrations SET welcome_email_sent_at = NOW() WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("reg SetWelcomeEmailSent: %w", err)
 	}
 	return nil
 }
@@ -182,7 +194,9 @@ const regRowSelectSQL = `
 		COALESCE(r.status_extended, r.status)           AS status_extended,
 		COALESCE(r.scan_count, 0)                       AS scan_count,
 		r.otp_sent_at,
+		COALESCE(r.otp_send_count, 0)                   AS otp_send_count,
 		r.otp_verified_at,
+		r.welcome_email_sent_at,
 		r.checked_in_at,
 		r.first_entry_at,
 		r.last_exit_at

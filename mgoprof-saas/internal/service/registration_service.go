@@ -337,9 +337,14 @@ func (s *RegistrationService) VerifyOTP(ctx context.Context, req model.VerifyOTP
 		ticketURL = fmt.Sprintf("%s/cabinet/events/%d/ticket", s.siteURL, req.EventID)
 	}
 
-	// Send welcome email with credentials and cabinet link
+	// Send welcome email with credentials and cabinet link.
+	// Record the timestamp so the admin timeline shows welcome_email_sent_at.
 	if mailErr := s.mailer.SendWelcome(email, user.FirstName, pwd, user.ID, reg.ID, cabinetURL, ticketURL); mailErr != nil {
 		s.logger.Warn("welcome email failed", zap.String("email", email), zap.Error(mailErr))
+	} else {
+		if err := s.regRepo.SetWelcomeEmailSent(ctx, reg.ID); err != nil {
+			s.logger.Warn("set welcome_email_sent_at failed", zap.String("email", email), zap.Error(err))
+		}
 	}
 
 	return cabinetURL, jwtToken, nil

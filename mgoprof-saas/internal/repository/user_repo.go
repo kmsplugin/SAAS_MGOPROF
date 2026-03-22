@@ -149,6 +149,23 @@ func (r *UserRepository) Anonymize(ctx context.Context, userID int) error {
 	return nil
 }
 
+// RecordLogin updates cabinet_first_login_at (once) and cabinet_last_login_at (always).
+// Called on every successful cabinet login so the admin timeline is complete.
+func (r *UserRepository) RecordLogin(ctx context.Context, userID int) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE reg_users
+		 SET cabinet_first_login_at = COALESCE(cabinet_first_login_at, NOW()),
+		     cabinet_last_login_at  = NOW(),
+		     updated_at             = NOW()
+		 WHERE id = $1`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("user RecordLogin: %w", err)
+	}
+	return nil
+}
+
 func (r *UserRepository) SetPassword(ctx context.Context, userID int, hash string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE reg_users

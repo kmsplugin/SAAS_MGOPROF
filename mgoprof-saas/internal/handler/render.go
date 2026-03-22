@@ -698,9 +698,9 @@ async function submitForm(e) {
       {{range .Lists}}
       <tr class="border-t">
         <td class="text-gray-400">{{.ID}}</td>
-        <td class="font-medium">{{.Name}}</td>
+        <td class="font-medium">{{.Title}}</td>
         <td class="text-gray-500">{{.Slug}}</td>
-        <td class="text-gray-500">{{len .Items}}</td>
+        <td class="text-gray-500">—</td>
       </tr>
       {{else}}<tr><td colspan="4" class="text-center text-gray-400 py-8">Справочников нет</td></tr>
       {{end}}

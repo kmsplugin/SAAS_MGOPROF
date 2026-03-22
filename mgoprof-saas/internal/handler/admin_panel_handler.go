@@ -145,6 +145,25 @@ type attendancePageData struct {
 	OnlineActive      int
 }
 
+// countStreamActions tallies stream_connect / stream_disconnect tracking events.
+// Returns connects, disconnects, and active count (floored at 0).
+// Extracted as a pure function so it can be unit-tested without a DB or HTTP stack.
+func countStreamActions(events []model.TrackingEvent) (connects, disconnects, active int) {
+	for _, e := range events {
+		switch e.Action {
+		case "stream_connect":
+			connects++
+		case "stream_disconnect":
+			disconnects++
+		}
+	}
+	active = connects - disconnects
+	if active < 0 {
+		active = 0
+	}
+	return
+}
+
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 func (h *AdminPanelHandler) Dashboard(c *gin.Context) {
@@ -351,18 +370,7 @@ func (h *AdminPanelHandler) AttendancePage(c *gin.Context) {
 	// Online and hybrid events: count stream tracking events.
 	if event.EventType == "online" || event.EventType == "hybrid" {
 		tracking, _ := h.trackingSvc.ListByEvent(c.Request.Context(), id)
-		for _, t := range tracking {
-			switch t.Action {
-			case "stream_connect":
-				data.StreamConnects++
-			case "stream_disconnect":
-				data.StreamDisconnects++
-			}
-		}
-		data.OnlineActive = data.StreamConnects - data.StreamDisconnects
-		if data.OnlineActive < 0 {
-			data.OnlineActive = 0
-		}
+		data.StreamConnects, data.StreamDisconnects, data.OnlineActive = countStreamActions(tracking)
 	}
 
 	// Offline and hybrid events: count QR scan check_in / check_out.

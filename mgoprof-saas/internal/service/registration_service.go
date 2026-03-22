@@ -333,8 +333,8 @@ func (s *RegistrationService) VerifyOTP(ctx context.Context, req model.VerifyOTP
 	// Determine ticket URL (non-empty for offline/hybrid events)
 	ticketURL := ""
 	event, eventErr := s.eventRepo.FindByID(ctx, req.EventID)
-	if eventErr == nil && event != nil && event.EventType != "online" {
-		ticketURL = fmt.Sprintf("%s/cabinet/events/%d/ticket", s.siteURL, req.EventID)
+	if eventErr == nil && event != nil {
+		ticketURL = resolveTicketURL(s.siteURL, req.EventID, event.EventType)
 	}
 
 	// Send welcome email with credentials and cabinet link.
@@ -370,6 +370,15 @@ func (s *RegistrationService) validateCustomAnswers(ctx context.Context, eventID
 		}
 	}
 	return nil
+}
+
+// resolveTicketURL returns a QR-ticket URL for offline/hybrid events.
+// Online events have no QR ticket — participants join via event_link from cabinet.
+func resolveTicketURL(siteURL string, eventID int, eventType string) string {
+	if eventType == "online" {
+		return ""
+	}
+	return fmt.Sprintf("%s/cabinet/events/%d/ticket", siteURL, eventID)
 }
 
 func generateOTP() string {

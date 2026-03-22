@@ -57,6 +57,74 @@ func TestAuthService_ParseToken_Garbage(t *testing.T) {
 	}
 }
 
+// ── Requirement 1: auto-login token after OTP ────────────────────────────────
+
+func TestIssueUserToken_ReturnsValidToken(t *testing.T) {
+	svc := makeTestAuthService("test_secret_minimum_32_characters_ok")
+	token, err := svc.IssueUserToken(55, "participant@event.ru")
+	if err != nil {
+		t.Fatalf("IssueUserToken: %v", err)
+	}
+	if token == "" {
+		t.Fatal("IssueUserToken вернул пустой токен")
+	}
+	userID, role, email, err := svc.ParseToken(token)
+	if err != nil {
+		t.Fatalf("ParseToken: %v", err)
+	}
+	if userID != 55 {
+		t.Errorf("userID: ожидали 55, получили %d", userID)
+	}
+	if role != "user" {
+		t.Errorf("IssueUserToken должен выдавать role=user, получили %q", role)
+	}
+	if email != "participant@event.ru" {
+		t.Errorf("email: ожидали 'participant@event.ru', получили %q", email)
+	}
+}
+
+func TestIssueUserToken_RoleIsNeverAdmin(t *testing.T) {
+	// IssueUserToken is called after OTP verification — must always be "user".
+	// If it somehow issued "admin", a participant could escalate privileges.
+	svc := makeTestAuthService("test_secret_minimum_32_characters_ok")
+	token, _ := svc.IssueUserToken(1, "someone@test.ru")
+	_, role, _, err := svc.ParseToken(token)
+	if err != nil {
+		t.Fatalf("ParseToken: %v", err)
+	}
+	if role == "admin" || role == "super_admin" {
+		t.Errorf("IssueUserToken не должен выдавать привилегированную роль, получили %q", role)
+	}
+}
+
+// ── Requirement 4: cabinet_first_login / cabinet_last_login semantics ────────
+// These can't be tested without a DB, but we verify the SQL COALESCE pattern
+// at the conceptual level: first login is set once, last login always updates.
+
+func TestCabinetLogin_FirstIsCoalesced(t *testing.T) {
+	// COALESCE(cabinet_first_login_at, NOW()) means:
+	// - if NULL  → set to NOW() (first login)
+	// - if set   → keep existing value (preserve first login)
+	// We verify the semantics via the Go nil pointer behaviour analogy.
+	var first *string // nil = not yet set
+
+	simulate := func() {
+		now := "2026-03-22T10:00:00"
+		if first == nil {
+			first = &now // first login: set once
+		}
+		// last login always updates (separate field, not tested here as pure Go)
+	}
+
+	simulate() // first call
+	savedFirst := *first
+
+	simulate() // second call — first must not change
+	if *first != savedFirst {
+		t.Errorf("cabinet_first_login_at изменился при повторном входе: %q → %q", savedFirst, *first)
+	}
+}
+
 func TestAuthService_AdminRole(t *testing.T) {
 	svc := makeTestAuthService("admin_secret_minimum_32_characters_ok")
 

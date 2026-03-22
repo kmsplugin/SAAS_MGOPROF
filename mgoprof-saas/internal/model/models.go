@@ -2,6 +2,23 @@ package model
 
 import "time"
 
+// ParticipantRole defines the allowed roles for a registration.
+// Roles determine which event link is shown in the cabinet and
+// which tracking label is applied.
+const (
+	ParticipantRoleSpeaker   = "speaker"
+	ParticipantRoleModerator = "moderator"
+	ParticipantRoleViewer    = "viewer"
+	ParticipantRoleDelegate  = "delegate"
+	ParticipantRoleGuest     = "guest"
+)
+
+// SpeakerRoles is the set of roles that resolve to speaker_link.
+var SpeakerRoles = map[string]bool{
+	ParticipantRoleSpeaker:   true,
+	ParticipantRoleModerator: true,
+}
+
 // ── Report analytics types ────────────────────────────────────────────────────
 
 // ReportStats holds aggregate counters for a single event.
@@ -113,6 +130,7 @@ type Registration struct {
 	UserID           int        `db:"user_id"           json:"user_id"`
 	OTPCode          string     `db:"otp_code"          json:"-"`
 	OTPExpiresAt     time.Time  `db:"otp_expires_at"    json:"-"`
+	OTPSentAt        *time.Time `db:"otp_sent_at"       json:"-"`
 	OTPVerifiedAt    *time.Time `db:"otp_verified_at"   json:"otp_verified_at,omitempty"`
 	Status           string     `db:"status"            json:"status"`
 	IPAddress        string     `db:"ip_address"        json:"-"`
@@ -195,6 +213,7 @@ type RegistrationRow struct {
 	Status         string     `db:"status"           json:"status"`
 	StatusExtended string     `db:"status_extended"  json:"status_extended"`
 	ScanCount      int        `db:"scan_count"       json:"scan_count"`
+	OTPSentAt      *time.Time `db:"otp_sent_at"      json:"otp_sent_at,omitempty"`
 	OTPVerifiedAt  *time.Time `db:"otp_verified_at"  json:"otp_verified_at,omitempty"`
 	CheckedInAt    *time.Time `db:"checked_in_at"    json:"checked_in_at,omitempty"`
 	FirstEntryAt   *time.Time `db:"first_entry_at"   json:"first_entry_at,omitempty"`

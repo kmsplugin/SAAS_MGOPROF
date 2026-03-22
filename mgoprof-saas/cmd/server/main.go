@@ -82,7 +82,7 @@ func main() {
 	// ── Services ──────────────────────────────────────────────────────────────
 	authSvc     := service.NewAuthService(userRepo, regRepo, consentRepo, logRepo, mail, geo, logger, cfg.JWTSecret, cfg.SiteURL)
 	fieldSvc    := service.NewFieldService(fieldRepo, logger)
-	regSvc      := service.NewRegistrationService(userRepo, eventRepo, regRepo, fieldRepo, logRepo, consentRepo, mail, geo, logger, cfg.SiteURL)
+	regSvc      := service.NewRegistrationService(userRepo, eventRepo, regRepo, fieldRepo, logRepo, consentRepo, mail, authSvc, geo, logger, cfg.SiteURL)
 	eventSvc    := service.NewEventService(eventRepo, logger)
 	adminSvc    := service.NewAdminService(
 		regRepo, eventRepo, logRepo, adminRepo, mail, authSvc, logger,
@@ -141,6 +141,11 @@ func main() {
 	})
 
 	authMW := middleware.Auth(authSvc)
+
+	// HTML admin panel — lives at /panel/* (not under /api so browsers don't
+	// confuse it with JSON API endpoints).
+	adminPanelHandler.RegisterRoutes(r.Group(""), authMW)
+
 	api := r.Group("/api")
 	{
 		// Public registration routes (rate-limited)
@@ -167,8 +172,8 @@ func main() {
 		api.POST("/admin/login",      adminLoginLimiter.Limit(), adminHandler.Login)
 		api.POST("/admin/verify-otp", otpLimiter.Limit(),        adminHandler.VerifyOTP)
 
-		// Admin HTML panel (server-side rendered pages)
-		adminPanelHandler.RegisterRoutes(api, authMW)
+		// Admin HTML panel is registered on the root router (not under /api)
+		// so its URLs are /panel/... instead of /api/panel/...
 		adminHandler.RegisterProtectedRoutes(api, authMW)
 
 		// Admin Q&A moderation

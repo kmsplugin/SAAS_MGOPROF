@@ -69,10 +69,10 @@ func (r *RegistrationRepository) CreateTx(
 	var id int
 	err := tx.QueryRowContext(ctx,
 		`INSERT INTO reg_registrations
-			(event_id, user_id, otp_code, otp_expires_at, status,
+			(event_id, user_id, otp_code, otp_expires_at, otp_sent_at, status,
 			 ip_address, geo_country, geo_region, geo_city,
 			 isp_name, isp_asn, device_type, os_name, browser_name)
-		 VALUES ($1,$2,$3,$4,'pending',$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		 VALUES ($1,$2,$3,$4,NOW(),'pending',$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		 RETURNING id`,
 		eventID, userID, otp, expiresAt, ip,
 		geo.Country, geo.Region, geo.City,
@@ -98,7 +98,7 @@ func (r *RegistrationRepository) UpdateOTPTx(
 ) error {
 	_, err := tx.ExecContext(ctx,
 		`UPDATE reg_registrations
-		 SET otp_code=$1, otp_expires_at=$2, otp_verified_at=NULL,
+		 SET otp_code=$1, otp_expires_at=$2, otp_sent_at=NOW(), otp_verified_at=NULL,
 		     status='pending', ip_address=$3, geo_country=$4, geo_region=$5, geo_city=$6,
 		     isp_name=$7, isp_asn=$8, device_type=$9, os_name=$10, browser_name=$11,
 		     updated_at=NOW()
@@ -181,6 +181,7 @@ const regRowSelectSQL = `
 		r.status,
 		COALESCE(r.status_extended, r.status)           AS status_extended,
 		COALESCE(r.scan_count, 0)                       AS scan_count,
+		r.otp_sent_at,
 		r.otp_verified_at,
 		r.checked_in_at,
 		r.first_entry_at,

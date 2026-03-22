@@ -134,10 +134,15 @@ type formBuilderData struct {
 
 type attendancePageData struct {
 	basePage
-	Event   *model.Event
-	Entries int
-	Exits   int
-	Present int
+	Event             *model.Event
+	// Offline (check_in / check_out based)
+	Entries           int
+	Exits             int
+	Present           int
+	// Online (stream_connect / stream_disconnect based)
+	StreamConnects    int
+	StreamDisconnects int
+	OnlineActive      int
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -337,12 +342,32 @@ func (h *AdminPanelHandler) AttendancePage(c *gin.Context) {
 		c.String(http.StatusNotFound, "Мероприятие не найдено")
 		return
 	}
-	entries, exits, present, _ := h.scanSvc.GetAttendanceSummary(context.Background(), id)
-	renderAdminPage(c.Writer, "attendance", attendancePageData{
+
+	data := attendancePageData{
 		basePage: basePage{Page: "events", Title: "Присутствие: " + event.Title},
 		Event:    event,
-		Entries:  entries,
-		Exits:    exits,
-		Present:  present,
-	})
+	}
+
+	if event.EventType == "online" {
+		// For online events, count stream_connect / stream_disconnect tracking events.
+		// Present = connects − disconnects (floor 0).
+		tracking, _ := h.trackingSvc.ListByEvent(c.Request.Context(), id)
+		for _, t := range tracking {
+			switch t.Action {
+			case "stream_connect":
+				data.StreamConnects++
+			case "stream_disconnect":
+				data.StreamDisconnects++
+			}
+		}
+		data.OnlineActive = data.StreamConnects - data.StreamDisconnects
+		if data.OnlineActive < 0 {
+			data.OnlineActive = 0
+		}
+	} else {
+		// For offline/hybrid events, use QR scan check_in / check_out counts.
+		data.Entries, data.Exits, data.Present, _ = h.scanSvc.GetAttendanceSummary(context.Background(), id)
+	}
+
+	renderAdminPage(c.Writer, "attendance", data)
 }

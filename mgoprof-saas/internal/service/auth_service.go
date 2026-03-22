@@ -125,6 +125,12 @@ func (s *AuthService) Me(ctx context.Context, userID int) (*model.User, error) {
 	return user, nil
 }
 
+// IssueUserToken generates a signed JWT for a regular cabinet user.
+// Called after successful OTP verification to provide an auto-login token.
+func (s *AuthService) IssueUserToken(userID int, email string) (string, error) {
+	return s.issueToken(userID, email, "user")
+}
+
 func (s *AuthService) issueToken(userID int, email, role string) (string, error) {
 	claims := jwt.MapClaims{
 		"sub":   userID,

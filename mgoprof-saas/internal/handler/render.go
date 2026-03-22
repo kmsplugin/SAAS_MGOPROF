@@ -88,23 +88,23 @@ const adminTemplatesSrc = `
     <span class="text-gray-400 text-sm">Admin</span>
   </div>
   <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-    <a href="/api/panel"              class="{{navClass . "dashboard"}}">
+    <a href="/panel"              class="{{navClass . "dashboard"}}">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
       Дашборд
     </a>
-    <a href="/api/panel/events"       class="{{navClass . "events"}}">
+    <a href="/panel/events"       class="{{navClass . "events"}}">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
       Мероприятия
     </a>
-    <a href="/api/panel/registrations" class="{{navClass . "registrations"}}">
+    <a href="/panel/registrations" class="{{navClass . "registrations"}}">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
       Регистрации
     </a>
-    <a href="/api/panel/reflists"     class="{{navClass . "reflists"}}">
+    <a href="/panel/reflists"     class="{{navClass . "reflists"}}">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
       Справочники
     </a>
-    <a href="/api/panel/logs"         class="{{navClass . "logs"}}">
+    <a href="/panel/logs"         class="{{navClass . "logs"}}">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
       Логи
     </a>
@@ -166,7 +166,7 @@ const adminTemplatesSrc = `
   <div class="bg-white rounded-xl shadow-sm border mb-8">
     <div class="flex items-center justify-between px-5 py-4 border-b">
       <h2 class="font-semibold text-gray-700">Мероприятия</h2>
-      <a href="/api/panel/events/new" class="text-sm text-blue-600 hover:underline">+ Создать</a>
+      <a href="/panel/events/new" class="text-sm text-blue-600 hover:underline">+ Создать</a>
     </div>
     <div class="overflow-x-auto">
       <table class="table-auto w-full text-sm border-collapse">
@@ -188,9 +188,9 @@ const adminTemplatesSrc = `
           <td class="text-right text-green-600 font-medium">{{.VerifiedRegs}}</td>
           <td>
             <div class="flex gap-2">
-              <a href="/api/panel/events/{{.ID}}/edit"          class="text-xs text-blue-600 hover:underline">Изменить</a>
-              <a href="/api/panel/events/{{.ID}}/registrations" class="text-xs text-gray-600 hover:underline">Участники</a>
-              <a href="/api/panel/events/{{.ID}}/tracking"      class="text-xs text-gray-600 hover:underline">Трекинг</a>
+              <a href="/panel/events/{{.ID}}/edit"          class="text-xs text-blue-600 hover:underline">Изменить</a>
+              <a href="/panel/events/{{.ID}}/registrations" class="text-xs text-gray-600 hover:underline">Участники</a>
+              <a href="/panel/events/{{.ID}}/tracking"      class="text-xs text-gray-600 hover:underline">Трекинг</a>
             </div>
           </td>
         </tr>
@@ -205,7 +205,7 @@ const adminTemplatesSrc = `
   <div class="bg-white rounded-xl shadow-sm border">
     <div class="flex items-center justify-between px-5 py-4 border-b">
       <h2 class="font-semibold text-gray-700">Последние регистрации</h2>
-      <a href="/api/panel/registrations" class="text-sm text-blue-600 hover:underline">Все →</a>
+      <a href="/panel/registrations" class="text-sm text-blue-600 hover:underline">Все →</a>
     </div>
     <div class="overflow-x-auto">
       <table class="table-auto w-full text-sm border-collapse">
@@ -242,7 +242,7 @@ const adminTemplatesSrc = `
 <div class="ml-60 p-8">
   <div class="mb-6 flex items-center justify-between">
     <h1 class="text-2xl font-semibold text-gray-800">Мероприятия</h1>
-    <a href="/api/panel/events/new"
+    <a href="/panel/events/new"
        class="inline-flex items-center gap-1 bg-blue-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
       + Создать мероприятие
     </a>
@@ -271,11 +271,11 @@ const adminTemplatesSrc = `
         <td>{{if .IsActive}}<span class="text-green-600 font-medium">Да</span>{{else}}<span class="text-gray-400">Нет</span>{{end}}</td>
         <td>
           <div class="flex flex-wrap gap-2">
-            <a href="/api/panel/events/{{.ID}}/edit"          class="text-blue-600 hover:underline">Изменить</a>
-            <a href="/api/panel/events/{{.ID}}/registrations" class="text-gray-600 hover:underline">Участники</a>
-            <a href="/api/panel/events/{{.ID}}/fields"        class="text-gray-600 hover:underline">Поля</a>
-            <a href="/api/panel/events/{{.ID}}/attendance"    class="text-gray-600 hover:underline">Присутствие</a>
-            <a href="/api/panel/events/{{.ID}}/tracking"      class="text-gray-600 hover:underline">Трекинг</a>
+            <a href="/panel/events/{{.ID}}/edit"          class="text-blue-600 hover:underline">Изменить</a>
+            <a href="/panel/events/{{.ID}}/registrations" class="text-gray-600 hover:underline">Участники</a>
+            <a href="/panel/events/{{.ID}}/fields"        class="text-gray-600 hover:underline">Поля</a>
+            <a href="/panel/events/{{.ID}}/attendance"    class="text-gray-600 hover:underline">Присутствие</a>
+            <a href="/panel/events/{{.ID}}/tracking"      class="text-gray-600 hover:underline">Трекинг</a>
           </div>
         </td>
       </tr>
@@ -294,7 +294,7 @@ const adminTemplatesSrc = `
 {{template "nav" .Page}}
 <div class="ml-60 p-8 max-w-3xl">
   <div class="mb-6">
-    <a href="/api/panel/events" class="text-sm text-gray-500 hover:underline">← Все мероприятия</a>
+    <a href="/panel/events" class="text-sm text-gray-500 hover:underline">← Все мероприятия</a>
     <h1 class="text-2xl font-semibold text-gray-800 mt-1">
       {{if .IsCreate}}Создать мероприятие{{else}}Редактировать: {{.Event.Title}}{{end}}
     </h1>
@@ -424,7 +424,7 @@ const adminTemplatesSrc = `
               class="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
         {{if .IsCreate}}Создать{{else}}Сохранить{{end}}
       </button>
-      <a href="/api/panel/events" class="text-sm text-gray-500 hover:underline">Отмена</a>
+      <a href="/panel/events" class="text-sm text-gray-500 hover:underline">Отмена</a>
     </div>
   </form>
 </div>
@@ -438,7 +438,7 @@ function showBanner(msg, ok) {
   b.textContent = msg;
   b.className = 'mb-4 p-3 rounded-lg text-sm ' + (ok ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800');
   b.classList.remove('hidden');
-  if (ok) setTimeout(() => window.location = '/api/panel/events', 1200);
+  if (ok) setTimeout(() => window.location = '/panel/events', 1200);
 }
 
 async function submitForm(e) {
@@ -489,7 +489,7 @@ async function submitForm(e) {
   <div class="mb-6 flex items-center justify-between">
     <div>
       {{if .EventTitle}}
-        <a href="/api/panel/events" class="text-sm text-gray-500 hover:underline">← Мероприятия</a>
+        <a href="/panel/events" class="text-sm text-gray-500 hover:underline">← Мероприятия</a>
         <h1 class="text-2xl font-semibold text-gray-800 mt-1">Участники: {{.EventTitle}}</h1>
       {{else}}
         <h1 class="text-2xl font-semibold text-gray-800">Регистрации</h1>
@@ -552,7 +552,7 @@ async function submitForm(e) {
 {{template "nav" .Page}}
 <div class="ml-60 p-8">
   <div class="mb-6">
-    <a href="/api/panel/events" class="text-sm text-gray-500 hover:underline">← Мероприятия</a>
+    <a href="/panel/events" class="text-sm text-gray-500 hover:underline">← Мероприятия</a>
     <h1 class="text-2xl font-semibold text-gray-800 mt-1">Трекинг: {{.Event.Title}}</h1>
     <p class="text-sm text-gray-500 mt-0.5">Всего событий: <b>{{.Total}}</b></p>
   </div>
@@ -642,7 +642,7 @@ async function submitForm(e) {
 {{template "nav" .Page}}
 <div class="ml-60 p-8">
   <div class="mb-6">
-    <a href="/api/panel/events" class="text-sm text-gray-500 hover:underline">← Мероприятия</a>
+    <a href="/panel/events" class="text-sm text-gray-500 hover:underline">← Мероприятия</a>
     <h1 class="text-2xl font-semibold text-gray-800 mt-1">Поля формы: {{.Event.Title}}</h1>
     <p class="text-sm text-gray-500 mt-1">Управление кастомными полями регистрации через API:
        <code class="bg-gray-100 px-1 rounded">/api/admin/events/{{.Event.ID}}/fields</code></p>
@@ -717,9 +717,36 @@ async function submitForm(e) {
 {{template "nav" .Page}}
 <div class="ml-60 p-8">
   <div class="mb-6">
-    <a href="/api/panel/events" class="text-sm text-gray-500 hover:underline">← Мероприятия</a>
-    <h1 class="text-2xl font-semibold text-gray-800 mt-1">Присутствие: {{.Event.Title}}</h1>
+    <a href="/panel/events" class="text-sm text-gray-500 hover:underline">← Мероприятия</a>
+    <h1 class="text-2xl font-semibold text-gray-800 mt-1">{{.Title}}</h1>
+    <span class="inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium
+      {{if eq .Event.EventType "online"}}bg-blue-100 text-blue-700
+      {{else if eq .Event.EventType "hybrid"}}bg-purple-100 text-purple-700
+      {{else}}bg-green-100 text-green-700{{end}}">
+      {{if eq .Event.EventType "online"}}Онлайн{{else if eq .Event.EventType "hybrid"}}Гибридное{{else}}Очное{{end}}
+    </span>
   </div>
+
+  {{if eq .Event.EventType "online"}}
+  {{/* Online: stream_connect / stream_disconnect counters */}}
+  <p class="text-xs text-gray-400 mb-4 uppercase tracking-wide">Присутствие считается по событиям трекинга stream_connect / stream_disconnect</p>
+  <div class="grid grid-cols-3 gap-4 mb-8">
+    <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Подключений</p>
+      <p class="text-4xl font-bold text-green-600">{{.StreamConnects}}</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Отключений</p>
+      <p class="text-4xl font-bold text-red-500">{{.StreamDisconnects}}</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Сейчас онлайн</p>
+      <p class="text-4xl font-bold text-blue-600">{{.OnlineActive}}</p>
+    </div>
+  </div>
+  {{else}}
+  {{/* Offline / hybrid: QR scan check_in / check_out counters */}}
+  <p class="text-xs text-gray-400 mb-4 uppercase tracking-wide">Присутствие считается по QR-сканированиям check_in / check_out</p>
   <div class="grid grid-cols-3 gap-4 mb-8">
     <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
       <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Вошли</p>
@@ -734,13 +761,14 @@ async function submitForm(e) {
       <p class="text-4xl font-bold text-blue-600">{{.Present}}</p>
     </div>
   </div>
+  {{end}}
+
   <div class="bg-white rounded-xl shadow-sm border p-5">
-    <p class="text-sm text-gray-500">Детальный лог сканирований доступен через API:
-       <code class="bg-gray-100 px-1 rounded">/api/admin/events/{{.Event.ID}}/tracking</code></p>
-    <div class="mt-4">
-      <a href="/api/panel/events/{{.Event.ID}}/registrations"
-         class="text-sm text-blue-600 hover:underline">Посмотреть список участников →</a>
-    </div>
+    <a href="/panel/events/{{.Event.ID}}/tracking"
+       class="text-sm text-blue-600 hover:underline">Детальный трекинг →</a>
+    <span class="mx-3 text-gray-300">|</span>
+    <a href="/panel/events/{{.Event.ID}}/registrations"
+       class="text-sm text-blue-600 hover:underline">Список участников →</a>
   </div>
 </div>
 </body></html>

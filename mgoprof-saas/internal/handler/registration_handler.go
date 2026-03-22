@@ -87,7 +87,7 @@ func (h *RegistrationHandler) VerifyOTP(c *gin.Context) {
 	ip := middleware.ExtractIP(c)
 	ua := c.Request.UserAgent()
 
-	cabinetURL, err := h.svc.VerifyOTP(c.Request.Context(), req, ip, ua)
+	cabinetURL, token, err := h.svc.VerifyOTP(c.Request.Context(), req, ip, ua)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{
 			Status:  "error",
@@ -97,9 +97,12 @@ func (h *RegistrationHandler) VerifyOTP(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"status":      "success",
-		"message":     "Регистрация подтверждена! Данные для входа отправлены на почту.",
+		"status":       "success",
+		"message":      "Регистрация подтверждена! Данные для входа отправлены на почту.",
 		"redirect_url": cabinetURL,
 		"cabinet_url":  cabinetURL,
+		// token allows the frontend to store the JWT and redirect without
+		// requiring the user to log in again via POST /auth/login.
+		"token": token,
 	})
 }

@@ -49,6 +49,7 @@ type RegistrationService struct {
 	logRepo     *repository.LogRepository
 	consentRepo *repository.ConsentRepository
 	mailer      *mailer.Mailer
+	authSvc     *AuthService
 	geo         *GeoResolver
 	logger      *zap.Logger
 	siteURL     string
@@ -62,6 +63,7 @@ func NewRegistrationService(
 	logRepo *repository.LogRepository,
 	consentRepo *repository.ConsentRepository,
 	m *mailer.Mailer,
+	authSvc *AuthService,
 	geo *GeoResolver,
 	logger *zap.Logger,
 	siteURL string,
@@ -74,6 +76,7 @@ func NewRegistrationService(
 		logRepo:     logRepo,
 		consentRepo: consentRepo,
 		mailer:      m,
+		authSvc:     authSvc,
 		geo:         geo,
 		logger:      logger,
 		siteURL:     siteURL,
@@ -269,41 +272,44 @@ func (s *RegistrationService) Register(
 }
 
 // VerifyOTP verifies the OTP, marks the registration as verified, issues fresh
-// credentials and sends the welcome email. Returns the cabinet redirect URL.
-func (s *RegistrationService) VerifyOTP(ctx context.Context, req model.VerifyOTPRequest, ip, userAgent string) (string, error) {
+// credentials and sends the welcome email.
+// Returns cabinetURL (for redirect) and a JWT token (for auto-login).
+func (s *RegistrationService) VerifyOTP(ctx context.Context, req model.VerifyOTPRequest, ip, userAgent string) (cabinetURL, token string, err error) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	cabinetURL := fmt.Sprintf("%s/cabinet/login?email=%s", s.siteURL, email)
+	cabinetURL = fmt.Sprintf("%s/cabinet", s.siteURL)
 
 	user, err := s.userRepo.FindByEmail(ctx, email)
 	if err != nil {
-		return "", fmt.Errorf("поиск пользователя: %w", err)
+		return "", "", fmt.Errorf("поиск пользователя: %w", err)
 	}
 	if user == nil {
-		return "", fmt.Errorf("пользователь не найден")
+		return "", "", fmt.Errorf("пользователь не найден")
 	}
 
 	reg, err := s.regRepo.FindByEventAndUser(ctx, req.EventID, user.ID)
 	if err != nil {
-		return "", fmt.Errorf("поиск регистрации: %w", err)
+		return "", "", fmt.Errorf("поиск регистрации: %w", err)
 	}
 	if reg == nil {
-		return "", fmt.Errorf("регистрация не найдена")
+		return "", "", fmt.Errorf("регистрация не найдена")
 	}
 	if reg.Status == "verified" {
-		return cabinetURL, fmt.Errorf("регистрация уже подтверждена")
+		// Already verified — issue a new token so the user can still auto-login.
+		t, _ := s.authSvc.IssueUserToken(user.ID, email)
+		return cabinetURL, t, fmt.Errorf("регистрация уже подтверждена")
 	}
 	if time.Now().After(reg.OTPExpiresAt) {
-		return "", fmt.Errorf("код подтверждения истёк. Запросите новый.")
+		return "", "", fmt.Errorf("код подтверждения истёк. Запросите новый.")
 	}
 	if reg.OTPCode != req.OTP {
 		_ = s.logRepo.Write(ctx, "otp_failed", email, ip, "invalid OTP", userAgent)
-		return "", fmt.Errorf("неверный код подтверждения")
+		return "", "", fmt.Errorf("неверный код подтверждения")
 	}
 
 	// Mark verified and clear OTP
 	participantToken := generateParticipantToken()
 	if err := s.regRepo.SetVerified(ctx, reg.ID, participantToken); err != nil {
-		return "", fmt.Errorf("подтверждение: %w", err)
+		return "", "", fmt.Errorf("подтверждение: %w", err)
 	}
 	_ = s.logRepo.Write(ctx, "registration_verified", email, ip,
 		fmt.Sprintf("event #%d verified, token=%s", req.EventID, participantToken), userAgent)
@@ -315,6 +321,13 @@ func (s *RegistrationService) VerifyOTP(ctx context.Context, req model.VerifyOTP
 		s.logger.Error("password hash failed", zap.String("email", email), zap.Error(err))
 	} else if err := s.userRepo.SetPassword(ctx, user.ID, hash); err != nil {
 		s.logger.Error("set password failed", zap.String("email", email), zap.Error(err))
+	}
+
+	// Issue JWT so the frontend can auto-login without a separate POST /auth/login.
+	jwtToken, jwtErr := s.authSvc.IssueUserToken(user.ID, email)
+	if jwtErr != nil {
+		s.logger.Error("issue user token failed", zap.String("email", email), zap.Error(jwtErr))
+		// Non-fatal: user can still log in manually with credentials from welcome email.
 	}
 
 	// Determine ticket URL (non-empty for offline/hybrid events)
@@ -329,7 +342,7 @@ func (s *RegistrationService) VerifyOTP(ctx context.Context, req model.VerifyOTP
 		s.logger.Warn("welcome email failed", zap.String("email", email), zap.Error(mailErr))
 	}
 
-	return cabinetURL, nil
+	return cabinetURL, jwtToken, nil
 }
 
 // validateCustomAnswers checks required custom fields are filled.

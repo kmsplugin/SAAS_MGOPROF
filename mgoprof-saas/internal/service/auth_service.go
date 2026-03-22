@@ -11,7 +11,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
-	"mgoprof-saas/internal/mailer"
 	"mgoprof-saas/internal/model"
 	"mgoprof-saas/internal/repository"
 )
@@ -24,7 +23,7 @@ type AuthService struct {
 	regRepo     *repository.RegistrationRepository
 	consentRepo *repository.ConsentRepository
 	logRepo     *repository.LogRepository
-	mailer      *mailer.Mailer
+	mailer      AuthMailer
 	geo         *GeoResolver
 	logger      *zap.Logger
 	jwtSecret   []byte
@@ -36,7 +35,7 @@ func NewAuthService(
 	regRepo *repository.RegistrationRepository,
 	consentRepo *repository.ConsentRepository,
 	logRepo *repository.LogRepository,
-	m *mailer.Mailer,
+	m AuthMailer,
 	geo *GeoResolver,
 	logger *zap.Logger,
 	jwtSecret, siteURL string,

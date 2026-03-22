@@ -12,7 +12,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
-	"mgoprof-saas/internal/mailer"
 	"mgoprof-saas/internal/model"
 	"mgoprof-saas/internal/repository"
 )
@@ -48,7 +47,7 @@ type RegistrationService struct {
 	fieldRepo   *repository.FieldRepository
 	logRepo     *repository.LogRepository
 	consentRepo *repository.ConsentRepository
-	mailer      *mailer.Mailer
+	mailer      RegistrationMailer
 	authSvc     *AuthService
 	geo         *GeoResolver
 	logger      *zap.Logger
@@ -62,7 +61,7 @@ func NewRegistrationService(
 	fieldRepo *repository.FieldRepository,
 	logRepo *repository.LogRepository,
 	consentRepo *repository.ConsentRepository,
-	m *mailer.Mailer,
+	m RegistrationMailer,
 	authSvc *AuthService,
 	geo *GeoResolver,
 	logger *zap.Logger,

@@ -20,6 +20,7 @@ import (
 	"mgoprof-saas/internal/middleware"
 	"mgoprof-saas/internal/repository"
 	"mgoprof-saas/internal/service"
+	"mgoprof-saas/internal/worker"
 )
 
 func main() {
@@ -58,8 +59,9 @@ func main() {
 	consentRepo  := repository.NewConsentRepository(db)
 	questionRepo := repository.NewQuestionRepository(db)
 	adminRepo    := repository.NewAdminRepository(db)
-	scanRepo     := repository.NewScanRepository(db)
-	refListRepo  := repository.NewRefListRepository(db)
+	scanRepo         := repository.NewScanRepository(db)
+	refListRepo      := repository.NewRefListRepository(db)
+	onlineSessionRepo := repository.NewOnlineSessionRepository(db)
 
 	// ── Mailer (async worker pool — 5 workers, buffer 500 jobs) ──────────────
 	// Workers drain the channel concurrently so HTTP handlers never block on SMTP.
@@ -90,8 +92,9 @@ func main() {
 	)
 	reportSvc   := service.NewReportService(reportRepo, eventRepo, logger)
 	trackingSvc := service.NewTrackingService(trackingRepo, regRepo, geo, logger)
-	ticketSvc   := service.NewTicketService(regRepo, eventRepo, userRepo, logger, cfg.SiteURL)
-	scanSvc     := service.NewScanService(scanRepo, eventRepo, logger)
+	ticketSvc          := service.NewTicketService(regRepo, eventRepo, userRepo, logger, cfg.SiteURL)
+	scanSvc            := service.NewScanService(scanRepo, eventRepo, logger)
+	onlineSessionSvc   := service.NewOnlineSessionService(onlineSessionRepo, regRepo, logger)
 
 	// ── Bootstrap super_admin from env vars (idempotent) ─────────────────────
 	adminSvc.BootstrapSuperAdmin(context.Background())
@@ -108,8 +111,9 @@ func main() {
 	questionHandler    := handler.NewQuestionHandler(questionRepo, mail, logger, cfg.SiteURL)
 	superAdminHandler  := handler.NewSuperAdminHandler(adminRepo, logger)
 	attendanceHandler  := handler.NewAttendanceHandler(scanSvc, logger)
-	refListHandler     := handler.NewRefListHandler(refListRepo, logger)
-	adminPanelHandler  := handler.NewAdminPanelHandler(
+	refListHandler        := handler.NewRefListHandler(refListRepo, logger)
+	onlineSessionHandler  := handler.NewOnlineSessionHandler(onlineSessionSvc, logger)
+	adminPanelHandler     := handler.NewAdminPanelHandler(
 		eventRepo, regRepo, fieldSvc, refListRepo,
 		scanSvc, trackingSvc, adminSvc, logger,
 	)
@@ -196,6 +200,9 @@ func main() {
 
 		// Reference lists (справочники) — public items + admin CRUD
 		refListHandler.RegisterRoutes(api, authMW)
+
+		// Online session lifecycle (participant) + admin stats
+		onlineSessionHandler.RegisterRoutes(api, authMW, authMW, adminRoleMW)
 	}
 
 	srv := &http.Server{
@@ -205,6 +212,13 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+
+	// Background workers — cancelled on graceful shutdown.
+	workerCtx, cancelWorkers := context.WithCancel(context.Background())
+	defer cancelWorkers()
+
+	go worker.RunSessionTimeoutWorker(workerCtx, onlineSessionSvc, 60*time.Second, logger)
+	go worker.RunObservabilityWorker(workerCtx, db, 5*time.Minute, logger)
 
 	go func() {
 		logger.Info("server started", zap.String("addr", srv.Addr))
@@ -218,6 +232,7 @@ func main() {
 	<-quit
 
 	logger.Info("shutting down...")
+	cancelWorkers() // stop background workers before HTTP drain
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {

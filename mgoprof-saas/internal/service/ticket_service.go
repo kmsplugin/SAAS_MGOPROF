@@ -60,11 +60,19 @@ func (s *TicketService) GetTicket(ctx context.Context, userID, eventID int) (*mo
 	// Admin will open this URL or the scanner will POST the token from it.
 	ticketURL := fmt.Sprintf("%s/api/admin/checkin?token=%s", s.siteURL, *reg.ParticipantToken)
 
+	eventLink := model.ResolveEventLink(
+		reg.ParticipantRole,
+		event.SpeakerLink,
+		event.ViewerLink,
+		event.CabinetLink,
+	)
+
 	return &model.TicketInfo{
 		Registration: *reg,
 		Event:        *event,
 		User:         *user,
 		TicketURL:    ticketURL,
+		EventLink:    eventLink,
 	}, nil
 }
 

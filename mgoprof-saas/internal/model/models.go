@@ -168,12 +168,61 @@ type OnlineSession struct {
 	EndReason      *string    `db:"end_reason"      json:"end_reason,omitempty"`
 }
 
+// OnlineSessionSummary maps to the online_session_summary view.
+type OnlineSessionSummary struct {
+	EventID        int        `db:"event_id"        json:"event_id"`
+	UserID         int        `db:"user_id"         json:"user_id"`
+	RegistrationID *int       `db:"registration_id" json:"registration_id,omitempty"`
+	SessionCount   int        `db:"session_count"   json:"session_count"`
+	FirstJoinAt    *time.Time `db:"first_join_at"   json:"first_join_at,omitempty"`
+	LastSeenAt     *time.Time `db:"last_seen_at"    json:"last_seen_at,omitempty"`
+	TotalSeconds   int        `db:"total_seconds"   json:"total_seconds"`
+}
+
+// OnlineStatsResponse is returned by the admin stats endpoint.
+type OnlineStatsResponse struct {
+	EventID       int                    `json:"event_id"`
+	ActiveNow     int                    `json:"active_now"`
+	Registrations []OnlineSessionSummary `json:"registrations"`
+}
+
+// SessionConnectRequest is the optional request body for stream/connect.
+// Fields are informational — the server derives identity from the JWT.
+type SessionConnectRequest struct {
+	// Reserved for future client metadata (e.g. player version).
+}
+
+// SessionPingRequest carries the session identifier.
+type SessionPingRequest struct {
+	SessionUUID string `json:"session_uuid" binding:"required"`
+}
+
+// SessionDisconnectRequest carries the session identifier.
+type SessionDisconnectRequest struct {
+	SessionUUID string `json:"session_uuid" binding:"required"`
+}
+
+// ResolveEventLink returns the canonical event link for a participant role.
+// This is the single source of truth for role→link resolution in Go code.
+// The same logic is mirrored in the SQL CASE expression inside ListByUserVerified
+// for bulk queries — keep the two in sync.
+func ResolveEventLink(role, speakerLink, viewerLink, cabinetLink string) string {
+	if SpeakerRoles[role] && speakerLink != "" {
+		return speakerLink
+	}
+	if viewerLink != "" {
+		return viewerLink
+	}
+	return cabinetLink
+}
+
 // TicketInfo bundles everything needed to render a participant ticket.
 type TicketInfo struct {
 	Registration Registration
 	Event        Event
 	User         User
 	TicketURL    string // full URL encoded in the QR code
+	EventLink    string // role-resolved stream/event link
 }
 
 // CheckInRequest is the admin body for scanning / manually entering a token.

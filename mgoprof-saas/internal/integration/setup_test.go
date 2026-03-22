@@ -191,12 +191,13 @@ func (f *FakeMailer) SendDataExport(to, firstName, dataJSON string) error {
 
 // testEnv bundles the live test server and all collaborators needed in tests.
 type testEnv struct {
-	Server  *httptest.Server
-	DB      *sqlx.DB
-	FM      *FakeMailer
-	AuthSvc *service.AuthService
-	RegRepo *repository.RegistrationRepository
-	UserRepo *repository.UserRepository
+	Server           *httptest.Server
+	DB               *sqlx.DB
+	FM               *FakeMailer
+	AuthSvc          *service.AuthService
+	RegRepo          *repository.RegistrationRepository
+	UserRepo         *repository.UserRepository
+	OnlineSessionSvc *service.OnlineSessionService
 }
 
 // newTestEnv opens a test DB, applies migrations (idempotent), cleans state,
@@ -230,26 +231,29 @@ func newTestEnv(t *testing.T) *testEnv {
 	fieldRepo    := repository.NewFieldRepository(db)
 	consentRepo  := repository.NewConsentRepository(db)
 	trackingRepo := repository.NewTrackingRepository(db)
-	scanRepo     := repository.NewScanRepository(db)
-	refListRepo  := repository.NewRefListRepository(db)
+	scanRepo          := repository.NewScanRepository(db)
+	refListRepo       := repository.NewRefListRepository(db)
+	onlineSessionRepo := repository.NewOnlineSessionRepository(db)
 
 	// ── Services ──────────────────────────────────────────────────────────────
 	geo      := service.NewGeoResolver("", "", logger)
 	authSvc  := service.NewAuthService(userRepo, regRepo, consentRepo, logRepo, fm, geo, logger,
 		testJWTSecret, testSiteURL)
-	fieldSvc    := service.NewFieldService(fieldRepo, logger)
-	regSvc      := service.NewRegistrationService(userRepo, eventRepo, regRepo, fieldRepo,
+	fieldSvc         := service.NewFieldService(fieldRepo, logger)
+	regSvc           := service.NewRegistrationService(userRepo, eventRepo, regRepo, fieldRepo,
 		logRepo, consentRepo, fm, authSvc, geo, logger, testSiteURL)
-	trackingSvc := service.NewTrackingService(trackingRepo, regRepo, geo, logger)
-	scanSvc     := service.NewScanService(scanRepo, eventRepo, logger)
+	trackingSvc      := service.NewTrackingService(trackingRepo, regRepo, geo, logger)
+	scanSvc          := service.NewScanService(scanRepo, eventRepo, logger)
+	onlineSessionSvc := service.NewOnlineSessionService(onlineSessionRepo, regRepo, logger)
 
 	// ── Gin router ────────────────────────────────────────────────────────────
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	regHandler  := handler.NewRegistrationHandler(regSvc, logger)
-	authHandler := handler.NewAuthHandler(authSvc, regRepo, logger)
+	regHandler          := handler.NewRegistrationHandler(regSvc, logger)
+	authHandler         := handler.NewAuthHandler(authSvc, regRepo, logger)
+	onlineSessionHandler := handler.NewOnlineSessionHandler(onlineSessionSvc, logger)
 	// AdminPanelHandler with nil adminSvc — attendance page doesn't use adminSvc.
 	adminPanelHandler := handler.NewAdminPanelHandler(
 		eventRepo, regRepo, fieldSvc, refListRepo,
@@ -267,18 +271,20 @@ func newTestEnv(t *testing.T) *testEnv {
 		api.POST("/register",   regHandler.HandleRegister)
 		api.POST("/verify-otp", regHandler.HandleVerifyOTP)
 		authHandler.RegisterRoutes(api, authMW)
+		onlineSessionHandler.RegisterRoutes(api, authMW)
 	}
 
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
 	return &testEnv{
-		Server:   srv,
-		DB:       db,
-		FM:       fm,
-		AuthSvc:  authSvc,
-		RegRepo:  regRepo,
-		UserRepo: userRepo,
+		Server:           srv,
+		DB:               db,
+		FM:               fm,
+		AuthSvc:          authSvc,
+		RegRepo:          regRepo,
+		UserRepo:         userRepo,
+		OnlineSessionSvc: onlineSessionSvc,
 	}
 }
 

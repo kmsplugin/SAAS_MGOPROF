@@ -103,3 +103,97 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
             go build -ldflags="-s -w" -o bin/server ./cmd/server
+
+  # ── Job 4: Playwright smoke suite ─────────────────────────────────────────
+  e2e-smoke:
+    name: Playwright smoke
+    runs-on: ubuntu-latest
+    needs: [build]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mgoprof_test
+          POSTGRES_PASSWORD: mgoprof_test
+          POSTGRES_DB: mgoprof_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mgoprof-saas/go.mod
+          cache: true
+          cache-dependency-path: mgoprof-saas/go.sum
+
+      - name: Apply migrations
+        working-directory: mgoprof-saas
+        env:
+          PGPASSWORD: mgoprof_test
+        run: |
+          for f in $(ls migrations/*.up.sql | sort); do
+            echo "Applying $f"
+            psql -h localhost -U mgoprof_test -d mgoprof_test -f "$f" 2>/dev/null || true
+          done
+
+      - name: Start server in background
+        working-directory: mgoprof-saas
+        env:
+          DATABASE_URL: postgres://mgoprof_test:mgoprof_test@localhost:5432/mgoprof_test?sslmode=disable
+          JWT_SECRET: ci_smoke_test_secret_minimum_32chars
+          PORT: "8080"
+          GIN_MODE: release
+          SITE_URL: http://localhost:8080
+          ALLOWED_ORIGIN: http://localhost:8080
+          SMTP_HOST: ""
+          SMTP_PORT: "25"
+          SMTP_USERNAME: ""
+          SMTP_PASSWORD: ""
+          MAIL_FROM_EMAIL: noreply@example.com
+          MAIL_FROM_NAME: Test
+          ADMIN_EMAIL: admin@example.com
+          ADMIN_NAME: Admin
+          ADMIN_PASSWORD_HASH: "$2a$12$placeholder_unused_in_smoke"
+        run: |
+          go build -o bin/server ./cmd/server
+          ./bin/server &
+          # Wait for health endpoint
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8080/health && echo " ✓ server ready" && break
+            echo "Waiting... $i"
+            sleep 2
+          done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install chromium --with-deps
+
+      - name: Run smoke suite
+        working-directory: e2e
+        env:
+          BASE_URL: http://localhost:8080
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7

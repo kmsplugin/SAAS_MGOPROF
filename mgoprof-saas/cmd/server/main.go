@@ -116,7 +116,7 @@ func main() {
 	adminPanelHandler     := handler.NewAdminPanelHandler(
 		eventRepo, regRepo, fieldSvc, refListRepo,
 		scanSvc, trackingSvc, adminSvc, logger,
-	)
+	).WithOnlineSessionService(onlineSessionSvc)
 
 	// ── Router ────────────────────────────────────────────────────────────────
 	if os.Getenv("GIN_MODE") == "" {

@@ -730,22 +730,46 @@ async function submitForm(e) {
   {{/* Online channel — shown for online and hybrid */}}
   {{if or (eq .Event.EventType "online") (eq .Event.EventType "hybrid")}}
   <h2 class="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">
-    Онлайн-канал <span class="font-normal normal-case text-gray-400">stream_connect / stream_disconnect</span>
+    Онлайн-канал
+    {{if .OnlineTotalDuration}}
+      <span class="font-normal normal-case text-gray-400">online_sessions</span>
+    {{else}}
+      <span class="font-normal normal-case text-gray-400">tracking log (session data unavailable)</span>
+    {{end}}
   </h2>
-  <div class="grid grid-cols-3 gap-4 mb-6">
+  {{if .OnlineTotalDuration}}
+  {{/* Structured session data from online_sessions table */}}
+  <div class="grid grid-cols-4 gap-4 mb-6">
     <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
-      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Подключений</p>
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Сейчас онлайн</p>
+      <p class="text-4xl font-bold text-green-600">{{.OnlineActiveNow}}</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Всего сессий</p>
+      <p class="text-4xl font-bold text-blue-600">{{.OnlineTotalSessions}}</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Время участия</p>
+      <p class="text-2xl font-bold text-indigo-600">{{.OnlineTotalDuration}}</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Секунд итого</p>
+      <p class="text-2xl font-bold text-gray-500">{{.OnlineTotalSeconds}}</p>
+    </div>
+  </div>
+  {{else}}
+  {{/* Fallback: legacy tracking log counters */}}
+  <div class="grid grid-cols-2 gap-4 mb-6">
+    <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Подключений (лог)</p>
       <p class="text-4xl font-bold text-green-600">{{.StreamConnects}}</p>
     </div>
     <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
-      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Отключений</p>
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Отключений (лог)</p>
       <p class="text-4xl font-bold text-red-500">{{.StreamDisconnects}}</p>
     </div>
-    <div class="bg-white rounded-xl shadow-sm border p-5 text-center">
-      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Сейчас онлайн</p>
-      <p class="text-4xl font-bold text-blue-600">{{.OnlineActive}}</p>
-    </div>
   </div>
+  {{end}}
   {{end}}
 
   {{/* Offline channel — shown for offline and hybrid */}}

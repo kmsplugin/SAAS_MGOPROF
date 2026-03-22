@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -18,14 +19,15 @@ import (
 // AdminPanelHandler serves full-page HTML admin UI (server-side rendered).
 // All routes live under /api/panel and require admin JWT + role middleware.
 type AdminPanelHandler struct {
-	eventRepo   *repository.EventRepository
-	regRepo     *repository.RegistrationRepository
-	fieldSvc    *service.FieldService
-	refListRepo *repository.RefListRepository
-	scanSvc     *service.ScanService
-	trackingSvc *service.TrackingService
-	adminSvc    *service.AdminService
-	logger      *zap.Logger
+	eventRepo        *repository.EventRepository
+	regRepo          *repository.RegistrationRepository
+	fieldSvc         *service.FieldService
+	refListRepo      *repository.RefListRepository
+	scanSvc          *service.ScanService
+	trackingSvc      *service.TrackingService
+	adminSvc         *service.AdminService
+	onlineSessionSvc *service.OnlineSessionService // may be nil for tests without sessions
+	logger           *zap.Logger
 }
 
 func NewAdminPanelHandler(
@@ -48,6 +50,14 @@ func NewAdminPanelHandler(
 		adminSvc:    adminSvc,
 		logger:      logger,
 	}
+}
+
+// WithOnlineSessionService attaches the online session service so the attendance
+// page can show structured session totals. This is optional — if not set, the
+// page falls back to tracking-log based counters.
+func (h *AdminPanelHandler) WithOnlineSessionService(svc *service.OnlineSessionService) *AdminPanelHandler {
+	h.onlineSessionSvc = svc
+	return h
 }
 
 // RegisterRoutes wires all admin panel HTML page routes.
@@ -134,15 +144,35 @@ type formBuilderData struct {
 
 type attendancePageData struct {
 	basePage
-	Event             *model.Event
-	// Offline (check_in / check_out based)
-	Entries           int
-	Exits             int
-	Present           int
-	// Online (stream_connect / stream_disconnect based)
+	Event   *model.Event
+
+	// Offline channel — QR check_in / check_out
+	Entries int
+	Exits   int
+	Present int
+
+	// Online channel — structured online_sessions
+	OnlineActiveNow    int    // sessions with ended_at IS NULL
+	OnlineTotalSessions int   // all sessions ever
+	OnlineTotalSeconds  int   // sum of duration_seconds
+	OnlineTotalDuration string // formatted "Xч Yм"
+
+	// Legacy fallback (used only when OnlineSessionService is unavailable)
 	StreamConnects    int
 	StreamDisconnects int
-	OnlineActive      int
+}
+
+// fmtDuration converts total seconds into a human-readable "Xч Yм" string.
+func fmtDuration(secs int) string {
+	if secs <= 0 {
+		return "0м"
+	}
+	h := secs / 3600
+	m := (secs % 3600) / 60
+	if h > 0 {
+		return fmt.Sprintf("%dч %dм", h, m)
+	}
+	return fmt.Sprintf("%dм", m)
 }
 
 // countStreamActions tallies stream_connect / stream_disconnect tracking events.
@@ -367,10 +397,26 @@ func (h *AdminPanelHandler) AttendancePage(c *gin.Context) {
 		Event:    event,
 	}
 
-	// Online and hybrid events: count stream tracking events.
+	// Online and hybrid events: prefer structured session data.
 	if event.EventType == "online" || event.EventType == "hybrid" {
-		tracking, _ := h.trackingSvc.ListByEvent(c.Request.Context(), id)
-		data.StreamConnects, data.StreamDisconnects, data.OnlineActive = countStreamActions(tracking)
+		if h.onlineSessionSvc != nil {
+			stats, err := h.onlineSessionSvc.AdminStats(c.Request.Context(), id)
+			if err != nil {
+				h.logger.Error("attendance page: online stats", zap.Int("event", id), zap.Error(err))
+			} else {
+				data.OnlineActiveNow = stats.ActiveNow
+				// Aggregate totals from registration summaries
+				for _, row := range stats.Registrations {
+					data.OnlineTotalSessions += row.SessionCount
+					data.OnlineTotalSeconds += row.TotalSeconds
+				}
+				data.OnlineTotalDuration = fmtDuration(data.OnlineTotalSeconds)
+			}
+		} else {
+			// Fallback to legacy tracking counters when service not wired.
+			tracking, _ := h.trackingSvc.ListByEvent(c.Request.Context(), id)
+			data.StreamConnects, data.StreamDisconnects, _ = countStreamActions(tracking)
+		}
 	}
 
 	// Offline and hybrid events: count QR scan check_in / check_out.

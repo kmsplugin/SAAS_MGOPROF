@@ -151,7 +151,19 @@ canvas#qr{border-radius:12px}
 .btn-back{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:10px;
   background:var(--grad);color:#fff;text-decoration:none;font-size:13px;font-weight:600;
   box-shadow:0 4px 14px rgba(255,124,44,.3)}
-@media print{.ticket-footer,.btn-back{display:none}
+.stream-section{background:linear-gradient(135deg,#0ea5e9 0%,#6366f1 100%);
+  margin:16px 28px 0;border-radius:14px;padding:16px 20px;color:#fff}
+.stream-section h3{font-size:14px;font-weight:700;margin-bottom:4px}
+.stream-section p{font-size:12px;opacity:.8;margin-bottom:12px}
+.btn-stream{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:10px;
+  background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.4);color:#fff;
+  text-decoration:none;font-size:13px;font-weight:700;cursor:pointer;
+  transition:background .2s}
+.btn-stream:hover{background:rgba(255,255,255,.3)}
+.session-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;
+  animation:pulse 2s infinite;display:inline-block}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@media print{.ticket-footer,.btn-back,.stream-section{display:none}
   body{background:#fff;padding:0}
   .ticket{box-shadow:none;border-radius:0;max-width:100%}}
 </style>
@@ -198,6 +210,18 @@ canvas#qr{border-radius:12px}
       </div>
     </div>
   </div>
+
+  {{/* Online stream section — shown only when event_link is set */}}
+  {{if .EventLink}}
+  <div class="stream-section">
+    <h3><span class="session-dot"></span> Онлайн-трансляция</h3>
+    <p>Ваша ссылка для подключения к эфиру</p>
+    <a id="btnStream" class="btn-stream" href="{{.EventLink}}" target="_blank" rel="noopener">
+      Войти в эфир →
+    </a>
+  </div>
+  {{end}}
+
   <div class="ticket-footer">
     <a class="btn-back" href="javascript:history.back()">← Назад</a>
     &nbsp;
@@ -218,6 +242,109 @@ canvas#qr{border-radius:12px}
   });
 })();
 </script>
+
+{{if .EventLink}}
+<script>
+// ── Online session heartbeat hooks ────────────────────────────────────────────
+// Lifecycle:
+//   1. connect  — on DOMContentLoaded (page opened)
+//   2. ping     — every 25 s while tab is visible
+//   3. disconnect — on beforeunload via sendBeacon (best-effort)
+//
+// Guards against duplicate loops from multiple tabs / rapid reloads:
+//   - sessionUUID is stored in sessionStorage (per-tab, cleared on close)
+//   - if a sessionUUID already exists in storage we skip connect and reuse it
+//
+// Fail-open: all network errors are silently swallowed so the ticket page
+// never breaks for the user if the session API is unavailable.
+(function(){
+  var eventID = {{jsonJS .Event.ID}};
+  var jwtCookie = (document.cookie.match(/jwt=([^;]+)/)||[])[1] || '';
+  var apiBase = '';
+  var storageKey = 'sess_uuid_' + eventID;
+  var pingInterval = null;
+
+  function authHeader(){ return 'Bearer ' + jwtCookie; }
+
+  function apiPost(path, body, beacon){
+    var url = apiBase + path;
+    var data = JSON.stringify(body);
+    if(beacon && navigator.sendBeacon){
+      // sendBeacon cannot set headers; use Blob with application/json type
+      var blob = new Blob([data], {type:'application/json'});
+      navigator.sendBeacon(url + '?_token=' + encodeURIComponent(jwtCookie), blob);
+      return;
+    }
+    fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','Authorization': authHeader()},
+      body: data,
+      keepalive: true
+    }).catch(function(){});
+  }
+
+  function connect(){
+    apiPost('/api/session/' + eventID + '/connect', {}, false);
+    // Server returns session_uuid but we use a simple fetch+callback to store it
+    fetch(apiBase + '/api/session/' + eventID + '/connect', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','Authorization': authHeader()},
+      body: '{}'
+    })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(d){
+      if(d && d.session_uuid){
+        sessionStorage.setItem(storageKey, d.session_uuid);
+        startHeartbeat(d.session_uuid);
+      }
+    })
+    .catch(function(){});
+  }
+
+  function startHeartbeat(uuid){
+    if(pingInterval) clearInterval(pingInterval);
+    pingInterval = setInterval(function(){
+      if(document.visibilityState === 'hidden') return; // skip while tab hidden
+      apiPost('/api/session/' + eventID + '/ping', {session_uuid: uuid}, false);
+    }, 25000);
+  }
+
+  function disconnect(uuid){
+    if(pingInterval){ clearInterval(pingInterval); pingInterval = null; }
+    sessionStorage.removeItem(storageKey);
+    if(!uuid) return;
+    apiPost('/api/session/' + eventID + '/disconnect', {session_uuid: uuid}, true);
+  }
+
+  // ── Boot ───────────────────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', function(){
+    var existingUUID = sessionStorage.getItem(storageKey);
+    if(existingUUID){
+      // Tab was reloaded — reuse existing UUID (server handles stale reconnect)
+      startHeartbeat(existingUUID);
+    } else {
+      connect(); // sets UUID + starts heartbeat
+    }
+
+    // Disconnect when user leaves/closes the page
+    window.addEventListener('beforeunload', function(){
+      var uuid = sessionStorage.getItem(storageKey);
+      disconnect(uuid);
+    });
+
+    // Pause heartbeat when tab goes to background, resume when visible
+    document.addEventListener('visibilitychange', function(){
+      var uuid = sessionStorage.getItem(storageKey);
+      if(!uuid) return;
+      if(document.visibilityState === 'visible'){
+        // Reconnect if tab was hidden for a long time (session may have timed out)
+        apiPost('/api/session/' + eventID + '/ping', {session_uuid: uuid}, false);
+      }
+    });
+  });
+})();
+</script>
+{{end}}
 </body>
 </html>`
 

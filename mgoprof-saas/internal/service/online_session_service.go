@@ -109,6 +109,8 @@ func (s *OnlineSessionService) TimeoutStaleSessions(ctx context.Context) (int64,
 }
 
 // AdminStats returns per-registration participation totals for an event.
+// Registrations — legacy aggregates from the view (for JSON API).
+// Participants  — richer per-user records with name + email (for admin HTML page).
 func (s *OnlineSessionService) AdminStats(
 	ctx context.Context,
 	eventID int,
@@ -116,6 +118,10 @@ func (s *OnlineSessionService) AdminStats(
 	summary, err := s.repo.SummaryByEvent(ctx, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("online_session AdminStats: %w", err)
+	}
+	participants, err := s.repo.SummaryWithUsers(ctx, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("online_session AdminStats participants: %w", err)
 	}
 	active, err := s.repo.ActiveCount(ctx, eventID)
 	if err != nil {
@@ -125,5 +131,6 @@ func (s *OnlineSessionService) AdminStats(
 		EventID:       eventID,
 		ActiveNow:     active,
 		Registrations: summary,
+		Participants:  participants,
 	}, nil
 }

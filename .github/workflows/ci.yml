@@ -144,6 +144,33 @@ jobs:
             psql -h localhost -U mgoprof_test -d mgoprof_test -f "$f" 2>/dev/null || true
           done
 
+      - name: Seed test event for smoke suite
+        # Inserts one active online event so Playwright registration tests have
+        # a target. Uses WHERE NOT EXISTS to be idempotent on re-runs.
+        env:
+          PGPASSWORD: mgoprof_test
+        run: |
+          psql -h localhost -U mgoprof_test -d mgoprof_test <<'SQL'
+          INSERT INTO reg_events (
+            title, event_type, event_date, event_time,
+            is_active, viewer_link, speaker_link, cabinet_link,
+            created_at, updated_at
+          )
+          SELECT
+            'CI Smoke Event',
+            'online',
+            CURRENT_DATE,
+            '09:00:00',
+            true,
+            'https://stream.example.com/watch',
+            'https://stream.example.com/speak',
+            'https://cabinet.example.com',
+            NOW(), NOW()
+          WHERE NOT EXISTS (
+            SELECT 1 FROM reg_events WHERE title = 'CI Smoke Event'
+          );
+          SQL
+
       - name: Start server in background
         working-directory: mgoprof-saas
         env:
@@ -162,6 +189,9 @@ jobs:
           ADMIN_EMAIL: admin@example.com
           ADMIN_NAME: Admin
           ADMIN_PASSWORD_HASH: "$2a$12$placeholder_unused_in_smoke"
+          # TEST_MODE exposes /api/test/last-otp so Playwright can complete OTP flow.
+          # NEVER set this in production.
+          TEST_MODE: "true"
         run: |
           go build -o bin/server ./cmd/server
           ./bin/server &
@@ -188,6 +218,7 @@ jobs:
         working-directory: e2e
         env:
           BASE_URL: http://localhost:8080
+          TEST_MODE: "true"
         run: npx playwright test
 
       - name: Upload Playwright report

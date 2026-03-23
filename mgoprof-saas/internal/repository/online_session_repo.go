@@ -180,6 +180,40 @@ func (r *OnlineSessionRepository) SummaryByEvent(
 	return rows, nil
 }
 
+// SummaryWithUsers returns per-participant session aggregates enriched with
+// user identity (email, first_name, last_name) for the admin attendance table.
+func (r *OnlineSessionRepository) SummaryWithUsers(
+	ctx context.Context,
+	eventID int,
+) ([]model.OnlineParticipantDetail, error) {
+	var rows []model.OnlineParticipantDetail
+	err := r.db.SelectContext(ctx, &rows, `
+		SELECT
+		    u.id                                             AS user_id,
+		    u.email,
+		    u.last_name,
+		    u.first_name,
+		    r.id                                             AS registration_id,
+		    COUNT(os.id)                                     AS session_count,
+		    MIN(os.started_at)                               AS first_join_at,
+		    MAX(COALESCE(os.ended_at, os.last_ping_at))      AS last_seen_at,
+		    COALESCE(SUM(os.duration_seconds), 0)            AS total_seconds,
+		    BOOL_OR(os.ended_at IS NULL)                     AS is_active
+		FROM online_sessions os
+		JOIN reg_users u ON u.id = os.user_id
+		LEFT JOIN reg_registrations r
+		    ON r.event_id = os.event_id AND r.user_id = os.user_id
+		WHERE os.event_id = $1
+		GROUP BY u.id, u.email, u.last_name, u.first_name, r.id
+		ORDER BY total_seconds DESC`,
+		eventID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("online_session SummaryWithUsers: %w", err)
+	}
+	return rows, nil
+}
+
 // ActiveCount returns the number of currently open sessions for an event.
 func (r *OnlineSessionRepository) ActiveCount(ctx context.Context, eventID int) (int, error) {
 	var n int

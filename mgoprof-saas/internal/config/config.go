@@ -28,6 +28,10 @@ type Config struct {
 	// Optional MaxMind GeoLite2 database files
 	GeoDBPath    string // GeoLite2-City.mmdb
 	GeoASNDBPath string // GeoLite2-ASN.mmdb
+
+	// TestMode enables test-only endpoints (e.g. last-otp lookup).
+	// MUST NOT be set in production.
+	TestMode bool
 }
 
 func Load() *Config {
@@ -52,6 +56,8 @@ func Load() *Config {
 
 		GeoDBPath:    getEnv("GEO_DB_PATH", ""),
 		GeoASNDBPath: getEnv("GEO_ASN_DB_PATH", ""),
+
+		TestMode: os.Getenv("TEST_MODE") == "true",
 	}
 }
 

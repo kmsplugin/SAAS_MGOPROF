@@ -338,3 +338,25 @@ func (r *RegistrationRepository) ListRegistrationsForExport(ctx context.Context,
 	}
 	return rows, nil
 }
+
+// GetLastOTP returns the current OTP code for a user's most-recent pending
+// registration. Only used in TEST_MODE — never call in production code.
+func (r *RegistrationRepository) GetLastOTP(ctx context.Context, email string) (string, error) {
+	var code string
+	err := r.db.GetContext(ctx, &code, `
+		SELECT rr.otp_code
+		FROM   reg_registrations rr
+		JOIN   reg_users u ON u.id = rr.user_id
+		WHERE  u.email = $1
+		  AND  rr.otp_code IS NOT NULL
+		  AND  rr.otp_expires_at > NOW()
+		ORDER  BY rr.created_at DESC
+		LIMIT  1`, email)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reg GetLastOTP: %w", err)
+	}
+	return code, nil
+}

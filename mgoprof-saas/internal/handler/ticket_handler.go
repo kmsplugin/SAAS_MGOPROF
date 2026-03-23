@@ -270,9 +270,9 @@ canvas#qr{border-radius:12px}
     var url = apiBase + path;
     var data = JSON.stringify(body);
     if(beacon && navigator.sendBeacon){
-      // sendBeacon cannot set headers; use Blob with application/json type
+      // sendBeacon cannot set headers; auth middleware accepts ?token= query param.
       var blob = new Blob([data], {type:'application/json'});
-      navigator.sendBeacon(url + '?_token=' + encodeURIComponent(jwtCookie), blob);
+      navigator.sendBeacon(url + '?token=' + encodeURIComponent(jwtCookie), blob);
       return;
     }
     fetch(url, {
@@ -284,8 +284,6 @@ canvas#qr{border-radius:12px}
   }
 
   function connect(){
-    apiPost('/api/session/' + eventID + '/connect', {}, false);
-    // Server returns session_uuid but we use a simple fetch+callback to store it
     fetch(apiBase + '/api/session/' + eventID + '/connect', {
       method: 'POST',
       headers: {'Content-Type':'application/json','Authorization': authHeader()},

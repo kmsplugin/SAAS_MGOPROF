@@ -151,11 +151,14 @@ type attendancePageData struct {
 	Exits   int
 	Present int
 
-	// Online channel — structured online_sessions
-	OnlineActiveNow    int    // sessions with ended_at IS NULL
-	OnlineTotalSessions int   // all sessions ever
-	OnlineTotalSeconds  int   // sum of duration_seconds
+	// Online channel — structured online_sessions (aggregate)
+	OnlineActiveNow     int    // sessions with ended_at IS NULL
+	OnlineTotalSessions int    // all sessions ever
+	OnlineTotalSeconds  int    // sum of duration_seconds
 	OnlineTotalDuration string // formatted "Xч Yм"
+
+	// Per-participant online breakdown with name + email (populated when OnlineSessionService available)
+	OnlineParticipants []model.OnlineParticipantDetail
 
 	// Legacy fallback (used only when OnlineSessionService is unavailable)
 	StreamConnects    int
@@ -405,12 +408,14 @@ func (h *AdminPanelHandler) AttendancePage(c *gin.Context) {
 				h.logger.Error("attendance page: online stats", zap.Int("event", id), zap.Error(err))
 			} else {
 				data.OnlineActiveNow = stats.ActiveNow
-				// Aggregate totals from registration summaries
+				// Aggregate totals from registration summaries (view-based, fast).
 				for _, row := range stats.Registrations {
 					data.OnlineTotalSessions += row.SessionCount
 					data.OnlineTotalSeconds += row.TotalSeconds
 				}
 				data.OnlineTotalDuration = fmtDuration(data.OnlineTotalSeconds)
+				// Per-participant detail (includes name + email).
+				data.OnlineParticipants = stats.Participants
 			}
 		} else {
 			// Fallback to legacy tracking counters when service not wired.

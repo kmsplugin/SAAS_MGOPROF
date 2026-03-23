@@ -179,11 +179,27 @@ type OnlineSessionSummary struct {
 	TotalSeconds   int        `db:"total_seconds"   json:"total_seconds"`
 }
 
+// OnlineParticipantDetail enriches OnlineSessionSummary with user identity fields.
+// Returned by the admin attendance page for the per-participant breakdown table.
+type OnlineParticipantDetail struct {
+	UserID         int        `db:"user_id"         json:"user_id"`
+	Email          string     `db:"email"           json:"email"`
+	LastName       string     `db:"last_name"       json:"last_name"`
+	FirstName      string     `db:"first_name"      json:"first_name"`
+	RegistrationID *int       `db:"registration_id" json:"registration_id,omitempty"`
+	SessionCount   int        `db:"session_count"   json:"session_count"`
+	FirstJoinAt    *time.Time `db:"first_join_at"   json:"first_join_at,omitempty"`
+	LastSeenAt     *time.Time `db:"last_seen_at"    json:"last_seen_at,omitempty"`
+	TotalSeconds   int        `db:"total_seconds"   json:"total_seconds"`
+	IsActive       bool       `db:"is_active"       json:"is_active"`
+}
+
 // OnlineStatsResponse is returned by the admin stats endpoint.
 type OnlineStatsResponse struct {
-	EventID       int                    `json:"event_id"`
-	ActiveNow     int                    `json:"active_now"`
-	Registrations []OnlineSessionSummary `json:"registrations"`
+	EventID       int                       `json:"event_id"`
+	ActiveNow     int                       `json:"active_now"`
+	Registrations []OnlineSessionSummary    `json:"registrations"`
+	Participants  []OnlineParticipantDetail `json:"participants"`
 }
 
 // SessionConnectRequest is the optional request body for stream/connect.

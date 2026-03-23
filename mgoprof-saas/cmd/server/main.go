@@ -203,6 +203,13 @@ func main() {
 
 		// Online session lifecycle (participant) + admin stats
 		onlineSessionHandler.RegisterRoutes(api, authMW, authMW, adminRoleMW)
+
+		// Test-only endpoints — NEVER enabled in production
+		if cfg.TestMode {
+			testHandler := handler.NewTestHandler(regRepo, logger)
+			testHandler.RegisterRoutes(api)
+			logger.Warn("TEST_MODE enabled — test endpoints are active")
+		}
 	}
 
 	srv := &http.Server{

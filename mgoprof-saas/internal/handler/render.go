@@ -33,6 +33,17 @@ var adminFuncs = template.FuncMap{
 		return "Нет"
 	},
 	"add": func(a, b int) int { return a + b },
+	"fmtSecs": func(secs int) string {
+		if secs <= 0 {
+			return "—"
+		}
+		h := secs / 3600
+		m := (secs % 3600) / 60
+		if h > 0 {
+			return fmt.Sprintf("%dч %dм", h, m)
+		}
+		return fmt.Sprintf("%dм", m)
+	},
 	"statusBadge": func(s string) template.HTML {
 		cls := map[string]string{
 			"verified":  "bg-green-100 text-green-800",
@@ -790,6 +801,61 @@ async function submitForm(e) {
       <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Сейчас внутри</p>
       <p class="text-4xl font-bold text-blue-600">{{.Present}}</p>
     </div>
+  </div>
+  {{end}}
+
+  {{/* Per-participant online session breakdown — name + email + timing */}}
+  {{if .OnlineParticipants}}
+  <h2 class="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2 mt-6">
+    Участники онлайн
+    <span class="font-normal normal-case text-gray-400">(online_sessions · {{len .OnlineParticipants}} чел.)</span>
+  </h2>
+  <div class="bg-white rounded-xl shadow-sm border overflow-hidden mb-6">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 border-b">
+        <tr>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Участник</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Рег.</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Сессий</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Первый вход</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Последняя активность</th>
+          <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Участие</th>
+          <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Онлайн</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {{range .OnlineParticipants}}
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3">
+            <div class="font-medium text-gray-800">{{.LastName}} {{.FirstName}}</div>
+            <div class="text-xs text-gray-400">{{.Email}}</div>
+          </td>
+          <td class="px-4 py-3 text-xs text-gray-500">
+            {{if .RegistrationID}}#{{.RegistrationID}}{{else}}—{{end}}
+          </td>
+          <td class="px-4 py-3 text-gray-700">{{.SessionCount}}</td>
+          <td class="px-4 py-3 text-gray-500 text-xs">
+            {{if .FirstJoinAt}}{{.FirstJoinAt.Format "02.01 15:04"}}{{else}}—{{end}}
+          </td>
+          <td class="px-4 py-3 text-gray-500 text-xs">
+            {{if .LastSeenAt}}{{.LastSeenAt.Format "02.01 15:04"}}{{else}}—{{end}}
+          </td>
+          <td class="px-4 py-3 text-right font-medium text-indigo-700">
+            {{fmtSecs .TotalSeconds}}
+          </td>
+          <td class="px-4 py-3 text-center">
+            {{if .IsActive}}
+            <span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>live
+            </span>
+            {{else}}
+            <span class="text-xs text-gray-300">—</span>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
   </div>
   {{end}}
 
